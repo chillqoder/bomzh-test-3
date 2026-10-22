@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:," />
+<title>Wayfarer — Low Poly</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #aca69a; }
+  body {
+    background:
+      radial-gradient(118% 108% at 38% 12%, #f4efe4 0%, #dfd9cd 32%, #b9b6ad 64%, #8a8d8c 100%);
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const V = THREE.Vector3;
+const TAU = Math.PI * 2;
+
+/* ============================================================
+   Renderer / scene / camera
+   ============================================================ */
+const app = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(34, window.innerWidth / window.innerHeight, 0.1, 80);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.0, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.rotateSpeed = 0.72;
+controls.zoomSpeed = 0.8;
+controls.minDistance = 2.2;
+controls.maxDistance = 9.0;
+controls.minPolarAngle = 0.36;
+controls.maxPolarAngle = 1.51;
+controls.enablePan = false;
+
+/* ============================================================
+   Materials
+   ============================================================ */
+function mat(hex, o = {}) {
+  return new THREE.MeshStandardMaterial({
+    color: hex,
+    roughness: o.rough !== undefined ? o.rough : 0.92,
+    metalness: o.metal || 0,
+    flatShading: o.smooth ? false : true,
+    side: o.double ? THREE.DoubleSide : THREE.FrontSide
+  });
+}
+
+const MAT = {
+  skin:        mat(0xc99b78),
+  skinShade:   mat(0xb0846a),
+  skinLight:   mat(0xd0a37f),
+  eyeWhite:    mat(0xded5c6, { rough: 0.6, smooth: true }),
+  iris:        mat(0x4b3626, { rough: 0.35, smooth: true }),
+  pupil:       mat(0x141110, { rough: 0.3, smooth: true }),
+  mouth:       mat(0x5a3930, { rough: 0.8 }),
+
+  beard:       mat(0x776f63, { double: true }),
+  beardD:      mat(0x5c564c, { double: true }),
+  beardGray:   mat(0x968f82, { double: true }),
+
+  hair:        mat(0x413327),
+  hairShell:   mat(0x413327, { double: true }),
+  hairGray:    mat(0x857e72),
+
+  beanie:      mat(0x7c3a45),
+  beanieD:     mat(0x652c36),
+  beanieL:     mat(0x8d4954),
+
+  jacket:      mat(0x7d5c41),
+  jacketD:     mat(0x674b35),
+  jacketL:     mat(0x8f6d4f),
+  jacketWorn:  mat(0x967752),
+
+  sweater:     mat(0xaa8449),
+  sweaterD:    mat(0x9b783f),
+
+  scarf:       mat(0x76878f, { double: true }),
+  scarfD:      mat(0x60717a, { double: true }),
+
+  trouser:     mat(0x46434a),
+  trouserD:    mat(0x37353c),
+  patchBlue:   mat(0x555c66),
+  patchTan:    mat(0x71634f),
+
+  boot:        mat(0x513c2d),
+  bootD:       mat(0x3a2a20),
+  sole:        mat(0x282222),
+  scuff:       mat(0x775e48),
+  lace:        mat(0x937c5d),
+
+  glove:       mat(0x47533f),
+  gloveD:      mat(0x384430),
+
+  pack:        mat(0x6e6e49),
+  packD:       mat(0x585a3a, { double: true }),
+  packL:       mat(0x7d7d54),
+  strapD:      mat(0x666743, { double: true }),
+
+  blanket:     mat(0x71828c),
+  blanketD:    mat(0x5d6e78),
+
+  metal:       mat(0xa8a196, { rough: 0.4, metal: 0.7 }),
+  metalD:      mat(0x777065, { rough: 0.5, metal: 0.6 }),
+
+  cup:         mat(0xe0d5bb, { double: true }),
+  cupBand:     mat(0xa34f49, { double: true }),
+  cupIn:       mat(0xb9ac8d),
+  coin:        mat(0xbf9f5e, { rough: 0.35, metal: 0.75 }),
+
+  cardboard:   mat(0xad8c63),
+  cardboardD:  mat(0x8d7250),
+  cardboardL:  mat(0xc1a077),
+
+  pavement:    mat(0x93948f),
+  pavement2:   mat(0x8b8c87),
+  pavement3:   mat(0x9b9c97),
+  pavementD:   mat(0x6e6f6a),
+  seam:        mat(0x5b5c57),
+  asphalt:     mat(0x535350),
+  curb:        mat(0x969792),
+  puddle:      mat(0x8ea2a6, { rough: 0.1, metal: 0.15, double: true }),
+  weed:        mat(0x6d7550),
+  weedD:       mat(0x585f3e),
+  canRed:      mat(0x915147),
+  canBand:     mat(0xbab2a2, { rough: 0.5, metal: 0.4 }),
+
+  paper:       mat(0xccc3ac, { double: true })
+};
+
+/* ============================================================
+   Helpers
+   ============================================================ */
+function add(parent, obj) {
+  obj.castShadow = true;
+  obj.receiveShadow = true;
+  parent.add(obj);
+  return obj;
+}
+
+function box(w, h, d, material, parent, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  m.position.set(x, y, z);
+  return add(parent, m);
+}
+
+function blob(r, sx, sy, sz, material, parent, x = 0, y = 0, z = 0, detail = 0) {
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, detail), material);
+  m.scale.set(sx, sy, sz);
+  m.position.set(x, y, z);
+  return add(parent, m);
+}
+
+function loftGeo(levels, segs = 8, opt = {}) {
+  const rib = opt.rib || 0;
+  const phase = opt.phase !== undefined ? opt.phase : Math.PI / segs;
+  const rings = levels.map(lv => {
+    const arr = [];
+    for (let i = 0; i < segs; i++) {
+      const a = (i / segs) * TAU + phase + (lv.rot || 0);
+      const rr = 1 + (rib ? (i % 2 ? rib : -rib) : 0);
+      arr.push(new V(
+        (lv.x || 0) + Math.sin(a) * lv.rx * rr,
+        lv.y,
+        (lv.z || 0) + Math.cos(a) * lv.rz * rr
+      ));
+    }
+    return arr;
+  });
+  const pos = [];
+  const T = (a, b, c) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  for (let l = 0; l < rings.length - 1; l++) {
+    const A = rings[l], B = rings[l + 1];
+    for (let i = 0; i < segs; i++) {
+      const j = (i + 1) % segs;
+      T(A[i], B[j], B[i]);
+      T(A[i], A[j], B[j]);
+    }
+  }
+  const cap = (ring, up) => {
+    let cx = 0, cz = 0;
+    for (const p of ring) { cx += p.x; cz += p.z; }
+    cx /= ring.length; cz /= ring.length;
+    const c = new V(cx, ring[0].y, cz);
+    for (let i = 0; i < segs; i++) {
+      const j = (i + 1) % segs;
+      if (up) T(c, ring[i], ring[j]);
+      else T(c, ring[j], ring[i]);
+    }
+  };
+  if (!opt.openTop) cap(rings[rings.length - 1], true);
+  if (!opt.openBottom) cap(rings[0], false);
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+function loft(levels, segs, material, parent, opt = {}) {
+  return add(parent, new THREE.Mesh(loftGeo(levels, segs, opt), material));
+}
+
+function arcShellGeo(levels, segs, gap, thick) {
+  const a0 = gap, a1 = TAU - gap;
+  const outer = [], inner = [];
+  for (const lv of levels) {
+    const o = [], n = [];
+    const x = lv.x || 0, z = lv.z || 0;
+    for (let i = 0; i <= segs; i++) {
+      const a = a0 + (a1 - a0) * (i / segs);
+      const sx = Math.sin(a), cz = Math.cos(a);
+      o.push(new V(x + sx * lv.rx, lv.y, z + cz * lv.rz));
+      n.push(new V(x + sx * (lv.rx - thick), lv.y, z + cz * (lv.rz - thick)));
+    }
+    outer.push(o); inner.push(n);
+  }
+  const pos = [];
+  const T = (a, b, c) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  const Q = (a, b, c, d) => { T(a, b, c); T(a, c, d); };
+  const L = levels.length - 1;
+
+  for (let l = 0; l < L; l++) {
+    for (let i = 0; i < segs; i++) {
+      Q(outer[l][i], outer[l][i + 1], outer[l + 1][i + 1], outer[l + 1][i]);
+      Q(inner[l][i], inner[l + 1][i], inner[l + 1][i + 1], inner[l][i + 1]);
+    }
+    Q(outer[l][0], outer[l + 1][0], inner[l + 1][0], inner[l][0]);
+    Q(outer[l][segs], inner[l][segs], inner[l + 1][segs], outer[l + 1][segs]);
+  }
+  for (let i = 0; i < segs; i++) {
+    Q(outer[L][i], inner[L][i], inner[L][i + 1], outer[L][i + 1]);
+    Q(outer[0][i], outer[0][i + 1], inner[0][i + 1], inner[0][i]);
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+function sweepGeo(points, width, thick, opt = {}) {
+  const curve = new THREE.CatmullRomCurve3(points.map(p => new V(...p)), false, 'catmullrom', 0.3);
+  const steps = opt.steps || Math.max(20, points.length * 7);
+  const center = new V(...(opt.center || [0, 1.15, 0]));
+  const rings = [];
+  for (let s = 0; s <= steps; s++) {
+    const u = s / steps;
+    const p = curve.getPointAt(u);
+    const t = curve.getTangentAt(u).normalize();
+    let n = p.clone().sub(center);
+    n.addScaledVector(t, -n.dot(t));
+    if (n.lengthSq() < 1e-7) n.set(0, 0, 1);
+    n.normalize();
+    let b = new V().crossVectors(t, n);
+    if (b.lengthSq() < 1e-7) b.set(1, 0, 0);
+    b.normalize();
+    n.crossVectors(b, t).normalize();
+    const hw = width * 0.5, ht = thick * 0.5;
+    rings.push([
+      p.clone().addScaledVector(b, hw).addScaledVector(n, ht),
+      p.clone().addScaledVector(b, -hw).addScaledVector(n, ht),
+      p.clone().addScaledVector(b, -hw).addScaledVector(n, -ht),
+      p.clone().addScaledVector(b, hw).addScaledVector(n, -ht)
+    ]);
+  }
+  const pos = [];
+  const T = (a, b, c) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  const Q = (a, b, c, d) => { T(a, b, c); T(a, c, d); };
+  for (let s = 0; s < steps; s++) {
+    const A = rings[s], B = rings[s + 1];
+    for (let k = 0; k < 4; k++) {
+      const k2 = (k + 1) % 4;
+      Q(A[k], A[k2], B[k2], B[k]);
+    }
+  }
+  Q(rings[0][0], rings[0][2], rings[0][1], rings[0][3]);
+  const last = rings[rings.length - 1];
+  Q(last[0], last[1], last[2], last[3]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+function sweep(points, width, thick, material, parent, opt = {}) {
+  return add(parent, new THREE.Mesh(sweepGeo(points, width, thick, opt), material));
+}
+
+function plate(pts, material, parent) {
+  const v = pts.map(p => new V(...p));
+  const pos = [];
+  for (let i = 1; i < v.length - 1; i++) {
+    pos.push(v[0].x, v[0].y, v[0].z, v[i].x, v[i].y, v[i].z, v[i + 1].x, v[i + 1].y, v[i + 1].z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return add(parent, new THREE.Mesh(g, material));
+}
+
+function poly(verts, faces, material, parent) {
+  const v = verts.map(p => new V(...p));
+  const center = new V();
+  for (const p of v) center.add(p);
+  center.divideScalar(v.length);
+  const pos = [];
+  const e1 = new V(), e2 = new V(), n = new V(), mid = new V();
+  for (const f of faces) {
+    for (let i = 1; i < f.length - 1; i++) {
+      let a = v[f[0]], b = v[f[i]], c = v[f[i + 1]];
+      // wind every triangle outward so front-face culling never hollows the shape
+      n.crossVectors(e1.subVectors(b, a), e2.subVectors(c, a));
+      mid.copy(a).add(b).add(c).divideScalar(3).sub(center);
+      if (n.dot(mid) < 0) [b, c] = [c, b];
+      pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return add(parent, new THREE.Mesh(g, material));
+}
+
+/* Thick band wrapping the jaw, with a variable top/bottom profile */
+function bandGeo(samples, thick) {
+  const ot = [], ob = [], it = [], ib = [];
+  for (const s of samples) {
+    const sx = Math.sin(s.a), cz = Math.cos(s.a);
+    ot.push(new V(sx * s.rx, s.top, cz * s.rz));
+    ob.push(new V(sx * s.rx, s.bot, cz * s.rz));
+    it.push(new V(sx * (s.rx - thick), s.top, cz * (s.rz - thick)));
+    ib.push(new V(sx * (s.rx - thick), s.bot, cz * (s.rz - thick)));
+  }
+  const pos = [];
+  const T = (a, b, c) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  const Q = (a, b, c, d) => { T(a, b, c); T(a, c, d); };
+  const n = samples.length;
+  for (let i = 0; i < n - 1; i++) {
+    Q(ot[i], ob[i], ob[i + 1], ot[i + 1]);
+    Q(it[i], it[i + 1], ib[i + 1], ib[i]);
+    Q(ot[i], ot[i + 1], it[i + 1], it[i]);
+    Q(ob[i], ib[i], ib[i + 1], ob[i + 1]);
+  }
+  Q(ot[0], it[0], ib[0], ob[0]);
+  Q(ot[n - 1], ob[n - 1], ib[n - 1], it[n - 1]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+function tube(a, b, ra, rb, material, sides = 7) {
+  const A = new V(...a), B = new V(...b);
+  const len = A.distanceTo(B);
+  const g = new THREE.CylinderGeometry(rb, ra, len, sides, 1, false);
+  const m = new THREE.Mesh(g, material);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new V(0, 1, 0), B.clone().sub(A).normalize());
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+function addTube(parent, a, b, ra, rb, material, sides = 7) {
+  return add(parent, tube(a, b, ra, rb, material, sides));
+}
+
+function fingerChain(parent, pts, r0, r1, material, sides = 5) {
+  const n = pts.length - 1;
+  for (let i = 0; i < n; i++) {
+    const t0 = i / n, t1 = (i + 1) / n;
+    addTube(parent, pts[i], pts[i + 1],
+      r0 + (r1 - r0) * t0, r0 + (r1 - r0) * t1, material, sides);
+    if (i > 0) {
+      const rr = r0 + (r1 - r0) * t0;
+      blob(rr * 1.02, 1, 1, 1, material, parent, pts[i][0], pts[i][1], pts[i][2], 0);
+    }
+  }
+  blob(r1 * 1.08, 1, 1, 1, material, parent, pts[n][0], pts[n][1], pts[n][2], 0);
+}
+
+function pivotWithSpace(parent, x, y, z) {
+  const pivot = new THREE.Group();
+  pivot.position.set(x, y, z);
+  const space = new THREE.Group();
+  space.position.set(-x, -y, -z);
+  pivot.add(space);
+  parent.add(pivot);
+  return { pivot, space };
+}
+
+/* ============================================================
+   Lighting
+   ============================================================ */
+scene.add(new THREE.HemisphereLight(0xdbe5ea, 0x6a5f52, 0.52));
+
+const sun = new THREE.DirectionalLight(0xffd7a8, 2.2);
+sun.position.set(3.4, 5.4, 3.5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -3.4;
+sun.shadow.camera.right = 3.4;
+sun.shadow.camera.top = 4.0;
+sun.shadow.camera.bottom = -3.0;
+sun.shadow.camera.near = 1.0;
+sun.shadow.camera.far = 15;
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.022;
+sun.target.position.set(0, 0.9, 0);
+scene.add(sun);
+scene.add(sun.target);
+
+const fill = new THREE.DirectionalLight(0xa9c2d3, 0.42);
+fill.position.set(-4.2, 2.4, 1.8);
+scene.add(fill);
+
+const rim = new THREE.DirectionalLight(0xffc492, 0.6);
+rim.position.set(-2.8, 3.2, -4.0);
+scene.add(rim);
+
+// gentle frontal fill so the face stays readable under the hat brim
+const faceFill = new THREE.DirectionalLight(0xd7e2e8, 0.3);
+faceFill.position.set(1.2, 2.2, 4.5);
+scene.add(faceFill);
+
+/* ============================================================
+   Diorama
+   ============================================================ */
+const GY = 0.012;
+
+function shapeFromXZ(points) {
+  const s = new THREE.Shape();
+  s.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) s.lineTo(points[i][0], points[i][1]);
+  s.closePath();
+  return s;
+}
+
+(function buildGround() {
+  const ground = new THREE.Group();
+  scene.add(ground);
+
+  const slabPts = [
+    [-1.4, -0.93], [-0.9, -1.16], [-0.1, -1.18], [0.86, -1.06],
+    [1.38, -0.64], [1.45, 0.3], [1.05, 0.94], [0.14, 1.12],
+    [-0.74, 1.07], [-1.32, 0.54]
+  ];
+  const baseGeo = new THREE.ExtrudeGeometry(shapeFromXZ(slabPts), { depth: 0.24, bevelEnabled: false });
+  baseGeo.rotateX(Math.PI / 2);
+  const base = new THREE.Mesh(baseGeo, [MAT.pavementD, MAT.pavementD]);
+  base.receiveShadow = true;
+  base.castShadow = true;
+  ground.add(base);
+
+  const tiles = [
+    [0, 0, 1.5, 1.18, MAT.pavement],
+    [-1.05, 0.0, 0.54, 1.76, MAT.pavement2],
+    [1.04, 0.02, 0.54, 1.6, MAT.pavement3],
+    [0, 0.85, 1.5, 0.46, MAT.pavement2],
+    [0, -0.85, 1.5, 0.46, MAT.pavement3]
+  ];
+  for (const [x, z, w, d, m] of tiles) {
+    const t = box(w, 0.014, d, m, ground, x, 0.005, z);
+    t.castShadow = false;
+  }
+
+  // slight tonal variation inside the big slab
+  const shade = new THREE.Mesh(new THREE.PlaneGeometry(1.42, 0.5), new THREE.MeshStandardMaterial({
+    color: 0x8b8a84, roughness: 0.96, transparent: true, opacity: 0.28
+  }));
+  shade.rotation.x = -Math.PI / 2;
+  shade.position.set(-0.1, 0.0125, 0.28);
+  shade.castShadow = false;
+  ground.add(shade);
+
+  // cracks
+  const crack = (pts) => {
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const c = box(len, 0.003, 0.007, MAT.seam, ground, (a[0] + b[0]) / 2, 0.0125, (a[1] + b[1]) / 2);
+      c.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+      c.castShadow = false;
+    }
+  };
+  crack([[-0.48, 0.24], [-0.34, 0.3], [-0.28, 0.43]]);
+  crack([[0.58, -0.4], [0.7, -0.34], [0.76, -0.24]]);
+  crack([[-0.9, 0.55], [-0.86, 0.68], [-0.93, 0.76]]);
+
+  // curb + asphalt on the right side
+  box(0.16, 0.3, 2.2, MAT.curb, ground, -1.37, -0.12, 0.0);
+  box(0.18, 0.022, 2.2, MAT.pavement3, ground, -1.37, 0.034, 0.0);
+  const road = box(0.52, 0.14, 2.24, MAT.asphalt, ground, -1.72, -0.2, 0.0);
+  road.receiveShadow = true;
+
+  // puddle near the curb
+  const pp = [];
+  const pc = 9;
+  for (let i = 0; i < pc; i++) {
+    const a = (i / pc) * TAU;
+    const r = 0.19 + 0.05 * Math.sin(i * 2.1) + 0.026 * Math.cos(i * 3.4);
+    pp.push([Math.cos(a) * r * 1.2, Math.sin(a) * r * 0.7]);
+  }
+  const pg = new THREE.ShapeGeometry(shapeFromXZ(pp));
+  pg.rotateX(-Math.PI / 2);
+  const puddle = new THREE.Mesh(pg, MAT.puddle);
+  puddle.position.set(-1.1, 0.0145, 0.36);
+  ground.add(puddle);
+  const puddleRim = new THREE.Mesh(pg.clone(), MAT.pavementD);
+  puddleRim.scale.set(1.09, 1, 1.09);
+  puddleRim.position.set(-1.1, 0.0132, 0.36);
+  ground.add(puddleRim);
+
+  // old dark stain on the pavement
+  const sp = [];
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * TAU;
+    const r = 0.2 + 0.06 * Math.sin(i * 2.7 + 1.2);
+    sp.push([Math.cos(a) * r * 1.35, Math.sin(a) * r * 0.8]);
+  }
+  const stainGeo = new THREE.ShapeGeometry(shapeFromXZ(sp));
+  stainGeo.rotateX(-Math.PI / 2);
+  const stainMat = new THREE.MeshStandardMaterial({
+    color: 0x5c584f, roughness: 1, transparent: true, opacity: 0.2, depthWrite: false
+  });
+  const stain = new THREE.Mesh(stainGeo, stainMat);
+  stain.position.set(0.62, 0.0138, 0.42);
+  stain.castShadow = false;
+  stain.receiveShadow = false;
+  ground.add(stain);
+
+  // weeds
+  function weedTuft(x, z, s) {
+    const g = new THREE.Group();
+    g.position.set(x, 0.012, z);
+    ground.add(g);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + 0.4 * s;
+      const h = (0.085 + 0.045 * Math.sin(i * 2.3 + s)) * s;
+      const lean = 0.05 * s;
+      add(g, tube([0, 0, 0], [Math.cos(a) * lean, h, Math.sin(a) * lean],
+        0.005 * s, 0.0014, i % 2 ? MAT.weed : MAT.weedD, 4));
+    }
+    return g;
+  }
+  weedTuft(-1.24, 0.7, 1.0);
+  weedTuft(-1.19, 0.83, 0.7);
+  weedTuft(0.82, -0.4, 0.6);
+
+  // utility cover in a paving slab
+  const mhDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.2, 0.012, 14), MAT.pavementD);
+  mhDisc.position.set(0.98, 0.014, -0.16);
+  mhDisc.receiveShadow = true;
+  mhDisc.castShadow = false;
+  ground.add(mhDisc);
+  const mhRing = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.007, 4, 16), MAT.seam);
+  mhRing.rotation.x = Math.PI / 2;
+  mhRing.position.set(0.98, 0.021, -0.16);
+  mhRing.rotation.z = 0.3;
+  mhRing.castShadow = false;
+  ground.add(mhRing);
+  const mhBar = box(0.29, 0.004, 0.012, MAT.seam, ground, 0.98, 0.021, -0.16);
+  mhBar.rotation.y = 0.3;
+  mhBar.castShadow = false;
+
+  // cardboard mat
+  const card = new THREE.Group();
+  card.position.set(-0.6, GY, 0.68);
+  card.rotation.y = 0.14;
+  ground.add(card);
+  box(0.58, 0.016, 0.42, MAT.cardboard, card, 0, 0.008, 0);
+  box(0.56, 0.006, 0.4, MAT.cardboardL, card, 0, 0.019, 0);
+  const flap = box(0.15, 0.011, 0.14, MAT.cardboardD, card, 0.25, 0.038, -0.14);
+  flap.rotation.z = 0.42;
+  flap.rotation.y = -0.25;
+  box(0.54, 0.002, 0.032, MAT.paper, card, 0, 0.0215, 0.11);
+
+  // folded blanket
+  const bl = new THREE.Group();
+  bl.position.set(-0.66, GY + 0.016, 0.66);
+  bl.rotation.y = 0.24;
+  ground.add(bl);
+  loft([
+    { y: 0, rx: 0.135, rz: 0.105 },
+    { y: 0.022, rx: 0.15, rz: 0.118 },
+    { y: 0.046, rx: 0.142, rz: 0.112 },
+    { y: 0.058, rx: 0.118, rz: 0.092 }
+  ], 7, MAT.blanket, bl);
+  const fold2 = loft([
+    { y: 0.056, rx: 0.11, rz: 0.086 },
+    { y: 0.074, rx: 0.122, rz: 0.098 },
+    { y: 0.098, rx: 0.098, rz: 0.078 }
+  ], 7, MAT.blanketD, bl);
+  fold2.rotation.y = 0.14;
+  const fold3 = loft([
+    { y: 0.094, rx: 0.085, rz: 0.066 },
+    { y: 0.112, rx: 0.096, rz: 0.076 },
+    { y: 0.128, rx: 0.07, rz: 0.056 }
+  ], 7, MAT.blanket, bl);
+  fold3.rotation.y = -0.1;
+  box(0.2, 0.006, 0.03, MAT.blanketD, bl, 0, 0.06, -0.045);
+  box(0.03, 0.006, 0.14, MAT.blanketD, bl, -0.02, 0.1, 0.0);
+
+  // tied bundle
+  const bundle = new THREE.Group();
+  bundle.position.set(-0.41, GY + 0.016, 0.82);
+  ground.add(bundle);
+  blob(0.1, 1, 0.85, 0.95, MAT.packL, bundle, 0, 0.09, 0, 1);
+  blob(0.058, 1, 0.75, 1, MAT.packD, bundle, 0.075, 0.145, 0.02, 0);
+  addTube(bundle, [-0.095, 0.1, 0], [0.095, 0.105, 0], 0.008, 0.008, MAT.cardboardD, 4);
+  addTube(bundle, [0, 0.05, -0.095], [0, 0.06, 0.095], 0.008, 0.008, MAT.cardboardD, 4);
+  blob(0.02, 1, 1, 1, MAT.cardboardD, bundle, 0, 0.12, 0.085, 0);
+
+  // can
+  const can = new THREE.Group();
+  can.position.set(-0.92, GY + 0.032, 0.48);
+  can.rotation.y = 0.7;
+  can.rotation.z = Math.PI / 2;
+  ground.add(can);
+  add(can, new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.105, 9, 1, true), MAT.canRed));
+  const canEnd = new THREE.Mesh(new THREE.CircleGeometry(0.03, 9), MAT.canBand);
+  canEnd.rotation.x = Math.PI / 2;
+  add(can, canEnd);
+  const canTop = new THREE.Mesh(new THREE.CylinderGeometry(0.027, 0.027, 0.006, 9), MAT.metal);
+  canTop.position.y = 0.054;
+  add(can, canTop);
+
+  // scrap paper
+  const scrap = plate([[-0.03, 0, -0.07], [0.09, 0, -0.055], [0.075, 0, 0.06], [-0.02, 0, 0.055]], MAT.paper, ground);
+  scrap.position.set(-0.86, 0.014, 0.86);
+  scrap.rotation.x = -Math.PI / 2;
+  scrap.rotation.z = 0.5;
+  scrap.castShadow = false;
+
+  ground.scale.set(0.9, 1, 0.9);
+})();
+
+/* ============================================================
+   Character root
+   ============================================================ */
+const character = new THREE.Group();
+character.position.y = GY;
+scene.add(character);
+
+const LEFT_HIP = [0.105, 0.955, 0.02];
+const RIGHT_HIP = [-0.105, 0.95, -0.03];
+
+/* ---- hips ---- */
+loft([
+  { y: 0.855, rx: 0.168, rz: 0.12, z: -0.005 },
+  { y: 0.925, rx: 0.205, rz: 0.148, z: -0.01 },
+  { y: 0.995, rx: 0.205, rz: 0.15, z: -0.012 },
+  { y: 1.038, rx: 0.182, rz: 0.134, z: -0.012 }
+], 9, MAT.trouser, character);
+
+/* ---- legs ---- */
+function buildLeg(cfg) {
+  const g = new THREE.Group();
+  character.add(g);
+
+  const hip = cfg.hip, knee = cfg.knee, ankle = cfg.ankle;
+
+  add(g, tube(hip, knee, 0.098, 0.082, MAT.trouser, 8));
+  blob(0.085, 1, 1, 1, MAT.trouser, g, knee[0], knee[1], knee[2], 1);
+  add(g, tube(knee, ankle, 0.082, 0.064, MAT.trouser, 8));
+  const cuff = add(g, tube(
+    [ankle[0], ankle[1] + 0.072, ankle[2] - 0.005],
+    [ankle[0], ankle[1] + 0.005, ankle[2]],
+    0.086, 0.08, MAT.trouserD, 8
+  ));
+  cuff.rotation.z = cfg.cuffTilt;
+
+  // soft fold lines
+  addTube(g,
+    [hip[0] + 0.035, hip[1] - 0.06, hip[2] + 0.045],
+    [knee[0] + 0.02, knee[1] + 0.09, knee[2] + 0.04],
+    0.006, 0.003, MAT.trouserD, 4);
+  addTube(g,
+    [knee[0] - 0.035, knee[1] - 0.04, knee[2] + 0.045],
+    [ankle[0] - 0.02, ankle[1] + 0.1, ankle[2] + 0.035],
+    0.006, 0.003, MAT.trouserD, 4);
+
+  if (cfg.patch) {
+    plate([
+      [knee[0] - 0.056, knee[1] + 0.055, knee[2] + 0.083],
+      [knee[0] + 0.054, knee[1] + 0.06, knee[2] + 0.082],
+      [knee[0] + 0.05, knee[1] - 0.055, knee[2] + 0.092],
+      [knee[0] - 0.054, knee[1] - 0.05, knee[2] + 0.088]
+    ], MAT.patchBlue, g);
+    for (let i = -1; i <= 1; i++) {
+      const st = box(0.017, 0.003, 0.003, MAT.trouserD, g,
+        knee[0] + i * 0.033, knee[1] + 0.046, knee[2] + 0.1);
+      st.castShadow = false;
+    }
+  }
+  if (cfg.tear) {
+    plate([
+      [knee[0] - 0.033, knee[1] + 0.028, knee[2] + 0.088],
+      [knee[0] + 0.024, knee[1] + 0.043, knee[2] + 0.086],
+      [knee[0] + 0.033, knee[1] - 0.028, knee[2] + 0.092],
+      [knee[0] - 0.024, knee[1] - 0.043, knee[2] + 0.094]
+    ], MAT.patchTan, g);
+    box(0.047, 0.02, 0.028, MAT.trouserD, g, knee[0], knee[1] - 0.033, knee[2] + 0.083);
+    for (let i = 0; i < 3; i++) {
+      addTube(g,
+        [knee[0] - 0.028 + i * 0.028, knee[1] + 0.028, knee[2] + 0.09],
+        [knee[0] - 0.032 + i * 0.03, knee[1] - 0.006, knee[2] + 0.097],
+        0.0026, 0.0011, MAT.trouserD, 3);
+    }
+  }
+
+  buildBoot(g, cfg);
+  return g;
+}
+
+function buildBoot(parent, cfg) {
+  const b = new THREE.Group();
+  b.position.set(cfg.ankle[0], 0, cfg.ankle[2]);
+  b.rotation.y = cfg.footYaw;
+  parent.add(b);
+  const worn = cfg.worn;
+
+  const solePts = [
+    [-0.058, -0.135], [0.058, -0.135], [0.072, -0.05],
+    [0.066, 0.11], [0.05, 0.175], [-0.05, 0.175], [-0.066, 0.11], [-0.072, -0.05]
+  ];
+  const sg = new THREE.ExtrudeGeometry(shapeFromXZ(solePts), { depth: 0.05, bevelEnabled: false });
+  sg.rotateX(Math.PI / 2);
+  const sole = new THREE.Mesh(sg, MAT.sole);
+  sole.position.y = 0.05;
+  add(b, sole);
+
+  box(0.114, 0.022, 0.088, MAT.bootD, b, 0, 0.058, -0.085);
+  for (let i = 0; i < 3; i++) {
+    box(0.118, 0.007, 0.017, MAT.bootD, b, 0, 0.013, 0.1 - i * 0.075).castShadow = false;
+  }
+
+  loft([
+    { y: 0.05, rx: 0.061, rz: 0.148, z: 0.018 },
+    { y: 0.095, rx: 0.066, rz: 0.152, z: 0.016 },
+    { y: 0.145, rx: 0.064, rz: 0.118, z: 0.008 },
+    { y: 0.21, rx: 0.06, rz: 0.082, z: -0.006 },
+    { y: 0.285, rx: 0.059, rz: 0.072, z: -0.016 },
+    { y: 0.315, rx: 0.055, rz: 0.068, z: -0.018 }
+  ], 8, MAT.boot, b);
+
+  const toe = blob(0.06, 1.0, 0.6, 1.1, worn ? MAT.scuff : MAT.boot, b, 0, 0.1, 0.118, 1);
+  toe.rotation.x = -0.12;
+  add(b, tube([0, 0.275, -0.018], [0, 0.318, -0.018], 0.064, 0.058, MAT.bootD, 8));
+
+  for (let i = 0; i < 3; i++) {
+    const l = box(0.072, 0.007, 0.011, MAT.lace, b, 0, 0.175 + i * 0.035, 0.05 - i * 0.017);
+    l.rotation.x = 0.6;
+    l.rotation.z = i % 2 ? 0.14 : -0.14;
+  }
+  const tongue = box(0.06, 0.082, 0.013, MAT.bootD, b, 0, 0.205, 0.05);
+  tongue.rotation.x = 0.55;
+
+  if (worn) {
+    const s1 = blob(0.038, 1.3, 0.5, 0.35, MAT.scuff, b, 0.037, 0.16, 0.032, 0);
+    s1.rotation.z = -0.3;
+    box(0.052, 0.005, 0.048, MAT.scuff, b, -0.044, 0.12, -0.038);
+  } else {
+    box(0.038, 0.005, 0.036, MAT.scuff, b, 0.049, 0.148, -0.02);
+  }
+}
+
+buildLeg({
+  hip: LEFT_HIP,
+  knee: [0.163, 0.55, 0.10],
+  ankle: [0.21, 0.175, 0.16],
+  footYaw: 0.36,
+  cuffTilt: 0.08,
+  patch: true,
+  tear: false,
+  worn: false
+});
+buildLeg({
+  hip: RIGHT_HIP,
+  knee: [-0.16, 0.555, -0.06],
+  ankle: [-0.205, 0.172, -0.08],
+  footYaw: -0.16,
+  cuffTilt: -0.12,
+  patch: false,
+  tear: true,
+  worn: true
+});
+
+/* ============================================================
+   Torso rig
+   ============================================================ */
+const torsoPivot = new THREE.Group();
+torsoPivot.position.set(0, 0.96, 0);
+const chestScale = new THREE.Group();
+const torsoSpace = new THREE.Group();
+torsoSpace.position.set(0, -0.96, 0);
+chestScale.add(torsoSpace);
+torsoPivot.add(chestScale);
+character.add(torsoPivot);
+torsoPivot.rotation.x = 0.024;
+
+/* ---- sweater ---- */
+loft([
+  { y: 0.915, rx: 0.188, rz: 0.136, z: -0.005 },
+  { y: 1.04, rx: 0.19, rz: 0.138, z: -0.003 },
+  { y: 1.17, rx: 0.194, rz: 0.144, z: 0.0 },
+  { y: 1.30, rx: 0.198, rz: 0.143, z: 0.002 },
+  { y: 1.375, rx: 0.19, rz: 0.136, z: 0.002 },
+  { y: 1.425, rx: 0.148, rz: 0.11, z: 0.0 }
+], 9, MAT.sweater, torsoSpace);
+
+const sCollar = new THREE.Mesh(new THREE.TorusGeometry(0.082, 0.018, 5, 12), MAT.sweaterD);
+sCollar.rotation.x = Math.PI / 2;
+sCollar.position.set(0, 1.424, 0.0);
+sCollar.scale.y = 0.8;
+add(torsoSpace, sCollar);
+
+/* ---- jacket ---- */
+const jacketLevels = [
+  { y: 0.895, rx: 0.203, rz: 0.156, z: -0.005 },
+  { y: 0.96, rx: 0.213, rz: 0.164, z: -0.004 },
+  { y: 1.06, rx: 0.223, rz: 0.172, z: -0.002 },
+  { y: 1.18, rx: 0.232, rz: 0.178, z: 0.0 },
+  { y: 1.29, rx: 0.241, rz: 0.177, z: 0.0 },
+  { y: 1.365, rx: 0.243, rz: 0.169, z: -0.002 },
+  { y: 1.405, rx: 0.235, rz: 0.157, z: -0.004 },
+  { y: 1.438, rx: 0.202, rz: 0.138, z: -0.006 },
+  { y: 1.468, rx: 0.148, rz: 0.114, z: -0.008 }
+];
+add(torsoSpace, new THREE.Mesh(arcShellGeo(jacketLevels, 14, 0.45, 0.02), MAT.jacket));
+
+const collar = new THREE.Mesh(new THREE.TorusGeometry(0.128, 0.036, 5, 14), MAT.jacketD);
+collar.rotation.x = Math.PI / 2;
+collar.position.set(0, 1.452, -0.005);
+collar.scale.y = 0.6;
+add(torsoSpace, collar);
+
+
+
+// pockets sit on the panels
+for (const s of [-1, 1]) {
+  const a = 0.78;
+  const px = s * Math.sin(a) * 0.245;
+  const pz = Math.cos(a) * 0.181 + 0.004;
+  const p = box(0.074, 0.095, 0.014, MAT.jacketD, torsoSpace, px, 1.04, pz);
+  p.rotation.y = s * a;
+  p.rotation.x = -0.05;
+  const f = box(0.078, 0.026, 0.02, MAT.jacket, torsoSpace, px, 1.095, pz + 0.003);
+  f.rotation.y = s * a;
+  f.rotation.x = -0.05;
+  const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.006, 6), MAT.jacketD);
+  btn.rotation.x = Math.PI / 2;
+  btn.rotation.y = s * a;
+  btn.position.set(px + s * 0.02, 1.087, pz + 0.018);
+  add(torsoSpace, btn);
+}
+
+// buttons on the front panel
+for (let i = 0; i < 2; i++) {
+  const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.007, 7), MAT.jacketD);
+  btn.rotation.x = Math.PI / 2;
+  btn.position.set(0.108, 1.175 + i * 0.095, 0.171 + i * 0.002);
+  add(torsoSpace, btn);
+}
+
+// jacket folds / worn spots
+addTube(torsoSpace, [0.185, 1.29, 0.12], [0.222, 1.09, 0.135], 0.011, 0.005, MAT.jacketD, 4);
+addTube(torsoSpace, [-0.115, 1.33, -0.176], [-0.055, 1.1, -0.176], 0.011, 0.004, MAT.jacketD, 4);
+addTube(torsoSpace, [0.045, 1.16, -0.188], [0.145, 1.03, -0.168], 0.009, 0.004, MAT.jacketD, 4);
+plate([[0.025, 0.945, 0.146], [0.128, 0.945, 0.116], [0.122, 0.972, 0.12], [0.025, 0.975, 0.15]], MAT.jacketWorn, torsoSpace);
+
+// slightly uneven hem
+const hem1 = box(0.07, 0.05, 0.014, MAT.jacket, torsoSpace, 0.172, 0.872, 0.108);
+hem1.rotation.y = 0.62;
+hem1.rotation.z = 0.16;
+const hem2 = box(0.06, 0.04, 0.014, MAT.jacketD, torsoSpace, -0.185, 0.878, -0.045);
+hem2.rotation.y = -0.9;
+hem2.rotation.z = -0.12;
+const hem3 = box(0.05, 0.032, 0.014, MAT.jacket, torsoSpace, 0.05, 0.882, -0.158);
+hem3.rotation.y = 0.03;
+hem3.rotation.x = 0.1;
+plate([[-0.218, 1.332, -0.05], [-0.243, 1.255, -0.02], [-0.238, 1.225, 0.015], [-0.216, 1.302, 0.004]], MAT.jacketWorn, torsoSpace);
+
+/* ============================================================
+   Head
+   ============================================================ */
+const headPivot = new THREE.Group();
+headPivot.position.set(0, 1.46, 0.012);
+headPivot.scale.setScalar(1.05);
+headPivot.rotation.set(0.04, 0.24, -0.055);
+torsoSpace.add(headPivot);
+
+const HEAD_BASE = { x: 0.04, y: 0.24, z: -0.055 };
+
+addTube(torsoSpace, [0, 1.4, -0.005], [0, 1.505, 0.012], 0.077, 0.066, MAT.skin, 8);
+
+// skull
+loft([
+  { y: 0.038, rx: 0.043, rz: 0.052, z: 0.012 },
+  { y: 0.078, rx: 0.072, rz: 0.078, z: 0.008 },
+  { y: 0.12, rx: 0.09, rz: 0.096, z: 0.004 },
+  { y: 0.17, rx: 0.1, rz: 0.107, z: 0.001 },
+  { y: 0.215, rx: 0.104, rz: 0.11, z: -0.001 },
+  { y: 0.255, rx: 0.1, rz: 0.106, z: -0.004 },
+  { y: 0.295, rx: 0.088, rz: 0.092, z: -0.008 },
+  { y: 0.322, rx: 0.05, rz: 0.055, z: -0.008 }
+], 10, MAT.skin, headPivot);
+
+// brow ridge
+addTube(headPivot, [-0.078, 0.231, 0.087], [0.078, 0.233, 0.087], 0.015, 0.015, MAT.skin, 5);
+
+// ears
+for (const s of [-1, 1]) {
+  const ear = blob(0.03, 0.42, 1.0, 0.76, MAT.skin, headPivot, s * 0.112, 0.196, 0.006, 1);
+  ear.rotation.z = s * -0.14;
+  blob(0.014, 0.3, 0.9, 0.6, MAT.skinShade, headPivot, s * 0.117, 0.193, 0.01, 0);
+}
+
+// eyes
+for (const s of [-1, 1]) {
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.026, 10, 8), MAT.eyeWhite);
+  eye.scale.set(1, 0.76, 0.55);
+  eye.position.set(s * 0.043, 0.203, 0.0985);
+  add(headPivot, eye);
+
+  const iris = new THREE.Mesh(new THREE.SphereGeometry(0.0125, 8, 6), MAT.iris);
+  iris.scale.set(1, 1, 0.45);
+  iris.position.set(s * 0.0445, 0.2025, 0.1085);
+  add(headPivot, iris);
+
+  const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0059, 7, 5), MAT.pupil);
+  pupil.scale.set(1, 1, 0.45);
+  pupil.position.set(s * 0.045, 0.202, 0.1122);
+  add(headPivot, pupil);
+
+  const lid = box(0.056, 0.015, 0.022, MAT.skin, headPivot, s * 0.043, 0.2155, 0.104);
+  lid.rotation.x = 0.4;
+  lid.rotation.z = -s * 0.14;
+
+  const low = box(0.05, 0.008, 0.016, MAT.skinShade, headPivot, s * 0.043, 0.1905, 0.103);
+  low.rotation.x = -0.2;
+  low.rotation.z = s * 0.06;
+
+  const bag = box(0.045, 0.01, 0.013, MAT.skinShade, headPivot, s * 0.042, 0.1815, 0.1);
+  bag.rotation.z = s * 0.08;
+
+  const lash = box(0.052, 0.0032, 0.012, MAT.mouth, headPivot, s * 0.043, 0.2225, 0.1125);
+  lash.rotation.z = -s * 0.08;
+  lash.castShadow = false;
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(0.0035, 5, 4), MAT.eyeWhite);
+  glint.position.set(s * 0.041, 0.207, 0.1145);
+  add(headPivot, glint);
+  glint.castShadow = false;
+
+  const brow = box(s > 0 ? 0.062 : 0.055, 0.0145, 0.021, MAT.beardD, headPivot,
+    s * 0.046, 0.2255 + (s > 0 ? 0.002 : -0.001), 0.105);
+  brow.rotation.z = -s * 0.13;
+  brow.rotation.x = 0.18;
+}
+
+// nose
+poly([
+  [-0.016, 0.224, 0.098], [0.016, 0.224, 0.098],
+  [-0.022, 0.167, 0.15], [0.022, 0.167, 0.15],
+  [-0.026, 0.151, 0.113], [0.026, 0.151, 0.113],
+  [-0.012, 0.15, 0.132], [0.012, 0.15, 0.132]
+], [
+  [0, 1, 3, 2],
+  [0, 2, 6, 4],
+  [1, 5, 7, 3],
+  [2, 3, 7, 6],
+  [4, 6, 7, 5],
+  [0, 4, 5, 1]
+], MAT.skin, headPivot);
+
+blob(0.014, 1.1, 0.8, 0.9, MAT.skin, headPivot, 0.025, 0.152, 0.115, 0);
+blob(0.014, 1.1, 0.8, 0.9, MAT.skin, headPivot, -0.025, 0.152, 0.115, 0);
+box(0.012, 0.005, 0.01, MAT.skinShade, headPivot, 0.014, 0.1475, 0.126).rotation.x = 0.4;
+box(0.012, 0.005, 0.01, MAT.skinShade, headPivot, -0.014, 0.1475, 0.126).rotation.x = 0.4;
+
+// mouth
+box(0.04, 0.0075, 0.011, MAT.mouth, headPivot, 0, 0.1105, 0.0955).rotation.x = 0.1;
+const m2 = box(0.02, 0.0068, 0.011, MAT.mouth, headPivot, 0.028, 0.1075, 0.0925);
+m2.rotation.z = 0.22;
+const m3 = box(0.02, 0.0068, 0.011, MAT.mouth, headPivot, -0.028, 0.1075, 0.0925);
+m3.rotation.z = -0.22;
+const lip = box(0.044, 0.012, 0.014, MAT.skinShade, headPivot, 0, 0.1005, 0.0935);
+lip.rotation.x = 0.15;
+
+/* ---- beard ---- */
+loft([
+  { y: 0.022, rx: 0.022, rz: 0.015, z: 0.08 },
+  { y: 0.052, rx: 0.037, rz: 0.023, z: 0.082 },
+  { y: 0.08, rx: 0.048, rz: 0.025, z: 0.078 },
+  { y: 0.098, rx: 0.052, rz: 0.021, z: 0.072 }
+], 7, MAT.beard, headPivot);
+
+const beardTable = [
+  [0.0, 0.09, 0.024],
+  [0.25, 0.096, 0.028],
+  [0.5, 0.112, 0.042],
+  [0.8, 0.136, 0.066],
+  [1.1, 0.156, 0.09],
+  [1.35, 0.168, 0.112],
+  [1.55, 0.174, 0.13]
+];
+function beardSample(a) {
+  const aa = Math.abs(a);
+  for (let i = 0; i < beardTable.length - 1; i++) {
+    const p = beardTable[i], q = beardTable[i + 1];
+    if (aa <= q[0]) {
+      const t = (aa - p[0]) / (q[0] - p[0]);
+      return { top: p[1] + (q[1] - p[1]) * t, bot: p[2] + (q[2] - p[2]) * t };
+    }
+  }
+  return { top: 0.192, bot: 0.136 };
+}
+const beardSamples = [];
+const beardN = 15;
+for (let i = 0; i < beardN; i++) {
+  const a = -1.55 + (3.1 * i) / (beardN - 1);
+  const s = beardSample(a);
+  beardSamples.push({ a, top: s.top, bot: s.bot, rx: 0.104, rz: 0.102 });
+}
+add(headPivot, new THREE.Mesh(bandGeo(beardSamples, 0.024), MAT.beard));
+
+// sideburns bridging beard to hair
+for (const s of [-1, 1]) {
+  addTube(headPivot, [s * 0.1, 0.243, 0.018], [s * 0.106, 0.2, 0.03], 0.017, 0.014, MAT.hair, 5);
+  addTube(headPivot, [s * 0.102, 0.238, 0.024], [s * 0.108, 0.205, 0.033], 0.008, 0.006, MAT.beardD, 4);
+}
+// gray patch on beard
+plate([[0.02, 0.07, 0.104], [0.052, 0.082, 0.096], [0.048, 0.115, 0.088], [0.016, 0.1, 0.1]], MAT.beardGray, headPivot);
+
+// surface strands
+addTube(headPivot, [0.052, 0.118, 0.092], [0.058, 0.074, 0.099], 0.0035, 0.0015, MAT.beardD, 3);
+addTube(headPivot, [-0.045, 0.11, 0.094], [-0.052, 0.068, 0.1], 0.0035, 0.0015, MAT.beardGray, 3);
+addTube(headPivot, [0.016, 0.096, 0.103], [0.018, 0.056, 0.106], 0.0035, 0.0015, MAT.beardGray, 3);
+
+// moustache
+addTube(headPivot, [0.004, 0.131, 0.104], [0.045, 0.123, 0.091], 0.014, 0.007, MAT.beardD, 5);
+addTube(headPivot, [-0.004, 0.131, 0.104], [-0.043, 0.125, 0.092], 0.015, 0.007, MAT.beard, 5);
+addTube(headPivot, [0, 0.104, 0.098], [0, 0.077, 0.09], 0.013, 0.005, MAT.beardD, 4);
+
+// chin tufts
+addTube(headPivot, [0.012, 0.045, 0.096], [0.018, 0.022, 0.097], 0.011, 0.004, MAT.beardD, 4);
+addTube(headPivot, [-0.02, 0.052, 0.095], [-0.03, 0.03, 0.092], 0.01, 0.003, MAT.beard, 4);
+addTube(headPivot, [0.0, 0.05, 0.093], [-0.004, 0.032, 0.089], 0.009, 0.003, MAT.beardGray, 4);
+
+/* ---- hair ---- */
+// hair cap around the back and sides of the skull
+const hairLevels = [
+  { y: 0.09, rx: 0.079, rz: 0.085 },
+  { y: 0.125, rx: 0.092, rz: 0.098 },
+  { y: 0.166, rx: 0.102, rz: 0.109 },
+  { y: 0.198, rx: 0.109, rz: 0.115 },
+  { y: 0.232, rx: 0.108, rz: 0.114 },
+  { y: 0.262, rx: 0.1, rz: 0.106 }
+];
+add(headPivot, new THREE.Mesh(arcShellGeo(hairLevels, 10, 1.15, 0.02), MAT.hairShell));
+
+for (const s of [-1, 1]) {
+  addTube(headPivot, [s * 0.093, 0.262, 0.018], [s * 0.107, 0.212, 0.032], 0.021, 0.012, MAT.hair, 5);
+  addTube(headPivot, [s * 0.096, 0.252, 0.006], [s * 0.104, 0.202, 0.026], 0.017, 0.012, MAT.hair, 5);
+}
+// ragged nape
+addTube(headPivot, [0.03, 0.178, -0.102], [0.036, 0.138, -0.096], 0.018, 0.006, MAT.hair, 4);
+addTube(headPivot, [-0.02, 0.172, -0.108], [-0.028, 0.132, -0.1], 0.019, 0.006, MAT.hair, 4);
+addTube(headPivot, [-0.06, 0.183, -0.094], [-0.07, 0.15, -0.086], 0.014, 0.005, MAT.hair, 4);
+// gray hair strands
+addTube(headPivot, [0.098, 0.252, 0.012], [0.106, 0.214, 0.03], 0.006, 0.004, MAT.hairGray, 4);
+addTube(headPivot, [-0.075, 0.232, -0.096], [-0.062, 0.196, -0.105], 0.005, 0.003, MAT.hairGray, 3);
+
+/* ---- beanie ---- */
+loft([
+  { y: 0.249, rx: 0.119, rz: 0.126, z: -0.002 },
+  { y: 0.268, rx: 0.133, rz: 0.14, z: -0.003 },
+  { y: 0.291, rx: 0.132, rz: 0.139, z: -0.004 },
+  { y: 0.311, rx: 0.119, rz: 0.126, z: -0.006 }
+], 14, MAT.beanie, headPivot, { rib: 0.022 });
+
+loft([
+  { y: 0.305, rx: 0.117, rz: 0.124, z: -0.006 },
+  { y: 0.331, rx: 0.116, rz: 0.122, z: -0.014 },
+  { y: 0.358, rx: 0.107, rz: 0.112, z: -0.028 },
+  { y: 0.382, rx: 0.089, rz: 0.094, z: -0.046 },
+  { y: 0.398, rx: 0.06, rz: 0.065, z: -0.062 },
+  { y: 0.407, rx: 0.026, rz: 0.029, z: -0.076 }
+], 12, MAT.beanie, headPivot, { rib: 0.022 });
+
+// knit ribs over the crown
+for (let i = 0; i < 7; i++) {
+  const a = (i / 7) * TAU + 0.16;
+  sweep([
+    [Math.sin(a) * 0.118, 0.306, Math.cos(a) * 0.125 - 0.007],
+    [Math.sin(a) * 0.117, 0.331, Math.cos(a) * 0.123 - 0.015],
+    [Math.sin(a) * 0.109, 0.356, Math.cos(a) * 0.114 - 0.029],
+    [Math.sin(a) * 0.095, 0.378, Math.cos(a) * 0.1 - 0.045]
+  ], 0.02, 0.008, MAT.beanieD, headPivot, { steps: 10, center: [0, 0.34, -0.03] });
+}
+
+// folded rim edge
+const rimEdge = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.008, 4, 16), MAT.beanieD);
+rimEdge.rotation.x = Math.PI / 2;
+rimEdge.position.set(0, 0.251, -0.002);
+rimEdge.scale.y = 0.7;
+add(headPivot, rimEdge);
+
+// broad knit ribs on the folded rim
+for (let i = 0; i < 10; i++) {
+  const a = (i / 10) * TAU + 0.08;
+  addTube(headPivot,
+    [Math.sin(a) * 0.1305, 0.252, Math.cos(a) * 0.1375 - 0.003],
+    [Math.sin(a) * 0.1285, 0.298, Math.cos(a) * 0.1355 - 0.005],
+    0.006, 0.005, MAT.beanieD, 4);
+}
+
+// fold line above rim
+const foldLine = new THREE.Mesh(new THREE.TorusGeometry(0.127, 0.006, 4, 16), MAT.beanieD);
+foldLine.rotation.x = Math.PI / 2;
+foldLine.position.set(0, 0.311, -0.005);
+foldLine.scale.y = 0.6;
+add(headPivot, foldLine);
+
+// crown slouch fold
+addTube(headPivot, [-0.05, 0.348, -0.006], [0.05, 0.352, -0.026], 0.009, 0.006, MAT.beanieD, 4);
+const crownFold = box(0.045, 0.011, 0.026, MAT.beanieL, headPivot, 0.028, 0.366, -0.024);
+crownFold.rotation.set(0.25, 0.3, -0.18);
+
+/* ============================================================
+   Arms
+   ============================================================ */
+const SHOULDER_L = [0.246, 1.332, 0.004];
+const SHOULDER_R = [-0.246, 1.332, 0.004];
+const ELBOW_L = [0.312, 1.112, 0.10];
+const ELBOW_R = [-0.342, 1.092, -0.01];
+const WRIST_L = [0.318, 1.075, 0.335];
+const WRIST_R = [-0.30, 1.19, 0.15];
+const CUP_POS = [0.318, 1.12, 0.452];
+
+function buildSleeve(space, shoulder, elbow, wrist, isLeft) {
+  // shoulder mass blends jacket into sleeve
+  const cap = blob(0.092, 1.0, 0.94, 0.98, MAT.jacket, space, shoulder[0], shoulder[1] - 0.01, shoulder[2] - 0.004, 1);
+  cap.rotation.z = isLeft ? -0.2 : 0.2;
+  addTube(space, shoulder, elbow, 0.086, 0.073, MAT.jacket, 8);
+  addTube(space, elbow, wrist, 0.073, 0.054, MAT.jacket, 8);
+  blob(0.07, 1, 1, 1, MAT.jacket, space, elbow[0], elbow[1], elbow[2], 1);
+
+  const dir = new V(...wrist).sub(new V(...elbow)).normalize();
+  const cuffA = new V(...wrist).addScaledVector(dir, -0.04);
+  addTube(space, cuffA.toArray(), wrist, 0.06, 0.056, MAT.jacketD, 8);
+
+  const px = elbow[0] + (isLeft ? 0.038 : -0.038);
+  const patch = blob(0.048, 1.12, 1.0, 0.55, MAT.jacketD, space, px, elbow[1] + 0.01, elbow[2] - 0.022, 1);
+  patch.rotation.z = isLeft ? -0.4 : 0.4;
+
+  addTube(space,
+    [shoulder[0] + (isLeft ? 0.028 : -0.028), shoulder[1] - 0.055, shoulder[2] + 0.05],
+    [elbow[0] + (isLeft ? 0.03 : -0.03), elbow[1] + 0.03, elbow[2] + 0.035],
+    0.006, 0.003, MAT.jacketD, 4);
+}
+
+/* ---- left arm: cup ---- */
+const leftArm = pivotWithSpace(torsoSpace, ...SHOULDER_L);
+buildSleeve(leftArm.space, SHOULDER_L, ELBOW_L, WRIST_L, true);
+
+// glove cuff
+addTube(leftArm.space, [0.317, 1.068, 0.315], [0.318, 1.081, 0.355], 0.05, 0.051, MAT.glove, 7);
+
+// palm / knuckles connecting wrist to grip
+const palmL = blob(0.062, 1.15, 1.35, 0.72, MAT.glove, leftArm.space, 0.318, 1.09, 0.372, 1);
+palmL.rotation.x = -0.15;
+const backL = blob(0.045, 1.3, 1.15, 0.45, MAT.gloveD, leftArm.space, 0.318, 1.095, 0.348, 0);
+
+// four fingers wrapping the cup
+const cupC = new V(...CUP_POS);
+const cupRows = [1.054, 1.079, 1.104, 1.129];
+for (let f = 0; f < 4; f++) {
+  const y = cupRows[f];
+  const r = 0.0605;
+  const a0 = 2.45 - f * 0.02, a1 = 0.24 + f * 0.03;
+  const pts = [];
+  for (let k = 0; k < 4; k++) {
+    const a = a0 + (a1 - a0) * (k / 3);
+    const rr = r + (k === 1 ? 0.001 : 0);
+    pts.push([cupC.x + Math.sin(a) * rr, y, cupC.z + Math.cos(a) * rr]);
+  }
+  fingerChain(leftArm.space, pts, 0.0115, 0.0085, MAT.skin, 5);
+}
+// thumb (opposite side)
+fingerChain(leftArm.space, [
+  [0.272, 1.048, 0.398],
+  [0.255, 1.068, 0.432],
+  [0.263, 1.092, 0.462],
+  [0.278, 1.109, 0.482]
+], 0.0155, 0.011, MAT.skin, 5);
+
+/* ---- cup ---- */
+const cupGroup = new THREE.Group();
+cupGroup.position.set(...CUP_POS);
+leftArm.space.add(cupGroup);
+
+add(cupGroup, new THREE.Mesh(new THREE.CylinderGeometry(0.0545, 0.0415, 0.16, 9, 1, true), MAT.cup));
+const cupBottom = new THREE.Mesh(new THREE.CircleGeometry(0.0415, 9), MAT.cup);
+cupBottom.rotation.x = Math.PI / 2;
+cupBottom.position.y = -0.0795;
+add(cupGroup, cupBottom);
+const cupInner = new THREE.Mesh(new THREE.CircleGeometry(0.0495, 9), MAT.cupIn);
+cupInner.rotation.x = -Math.PI / 2;
+cupInner.position.y = 0.062;
+add(cupGroup, cupInner);
+const rimT = new THREE.Mesh(new THREE.TorusGeometry(0.0538, 0.0052, 4, 12), MAT.cup);
+rimT.rotation.x = Math.PI / 2;
+rimT.position.y = 0.0795;
+add(cupGroup, rimT);
+const band = new THREE.Mesh(new THREE.CylinderGeometry(0.0512, 0.0492, 0.032, 9, 1, true), MAT.cupBand);
+band.position.y = -0.006;
+add(cupGroup, band);
+const coinA = new THREE.Mesh(new THREE.CylinderGeometry(0.0135, 0.0135, 0.003, 8), MAT.coin);
+coinA.position.set(0.012, 0.069, 0.0);
+coinA.rotation.z = 0.06;
+add(cupGroup, coinA);
+const coinB = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.0115, 0.003, 8), MAT.coin);
+coinB.position.set(-0.014, 0.068, 0.013);
+coinB.rotation.x = 0.1;
+add(cupGroup, coinB);
+const coinC = new THREE.Mesh(new THREE.CylinderGeometry(0.0105, 0.0105, 0.0025, 8), MAT.coin);
+coinC.position.set(-0.006, 0.072, -0.018);
+add(cupGroup, coinC);
+
+/* ---- right arm: strap grip ---- */
+const rightArm = pivotWithSpace(torsoSpace, ...SHOULDER_R);
+buildSleeve(rightArm.space, SHOULDER_R, ELBOW_R, WRIST_R, false);
+
+addTube(rightArm.space, [-0.302, 1.178, 0.13], [-0.29, 1.204, 0.176], 0.048, 0.05, MAT.glove, 7);
+
+const GRIP = new V(-0.235, 1.2, 0.175);
+// solid gloved fist around the shoulder strap
+const fist = blob(0.076, 0.86, 1.0, 0.76, MAT.glove, rightArm.space, -0.238, 1.201, 0.205, 1);
+fist.rotation.z = -0.06;
+const fistBack = blob(0.05, 0.6, 1.05, 0.9, MAT.gloveD, rightArm.space, -0.29, 1.2, 0.198, 0);
+
+// four fingers wrapped across the front of the fist
+const gripRows = [1.158, 1.183, 1.208, 1.233];
+for (let f = 0; f < 4; f++) {
+  const y = gripRows[f];
+  const pts = [
+    [-0.286, y, 0.226],
+    [-0.262, y, 0.247],
+    [-0.232, y, 0.252],
+    [-0.2, y, 0.24]
+  ];
+  fingerChain(rightArm.space, pts, 0.0115, 0.0085, MAT.skin, 5);
+}
+// thumb wraps over the top of the fingers
+fingerChain(rightArm.space, [
+  [-0.272, 1.152, 0.224],
+  [-0.247, 1.176, 0.25],
+  [-0.215, 1.19, 0.256]
+], 0.0155, 0.011, MAT.skin, 5);
+
+/* ============================================================
+   Scarf
+   ============================================================ */
+const scarfGroup = new THREE.Group();
+torsoSpace.add(scarfGroup);
+
+for (let i = 0; i < 2; i++) {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.098 + i * 0.004, 0.031, 5, 14), MAT.scarf);
+  ring.rotation.x = Math.PI / 2;
+  ring.rotation.z = i ? 0.13 : -0.04;
+  ring.position.set(0, 1.431 + i * 0.036, 0.004);
+  ring.scale.y = 0.85;
+  add(scarfGroup, ring);
+}
+const knot = box(0.058, 0.048, 0.042, MAT.scarf, scarfGroup, 0.072, 1.42, 0.132);
+knot.rotation.set(0.18, 0.35, 0.12);
+box(0.04, 0.018, 0.05, MAT.scarfD, scarfGroup, 0.079, 1.404, 0.147).rotation.set(0.1, 0.3, 0);
+
+const scarfPivot = new THREE.Group();
+scarfPivot.position.set(0.085, 1.412, 0.153);
+scarfGroup.add(scarfPivot);
+const scarfEnd = new THREE.Group();
+scarfEnd.position.set(-0.085, -1.412, -0.153);
+scarfPivot.add(scarfEnd);
+
+sweep([
+  [0.085, 1.412, 0.158],
+  [0.103, 1.36, 0.176],
+  [0.094, 1.31, 0.184],
+  [0.104, 1.268, 0.18]
+], 0.094, 0.022, MAT.scarf, scarfEnd, { steps: 12, center: [0.09, 1.34, 0.0] });
+
+// hem notch
+addTube(scarfEnd, [0.062, 1.272, 0.185], [0.058, 1.252, 0.181], 0.006, 0.004, MAT.scarfD, 4);
+addTube(scarfEnd, [0.121, 1.271, 0.184], [0.125, 1.251, 0.18], 0.006, 0.004, MAT.scarfD, 4);
+addTube(scarfEnd, [0.072, 1.39, 0.19], [0.094, 1.32, 0.2], 0.007, 0.004, MAT.scarfD, 4);
+
+/* ============================================================
+   Backpack
+   ============================================================ */
+const pack = new THREE.Group();
+torsoSpace.add(pack);
+
+loft([
+  { y: 1.0, rx: 0.15, rz: 0.098, z: -0.32, rot: 0.07 },
+  { y: 1.04, rx: 0.182, rz: 0.124, z: -0.334, rot: 0.06 },
+  { y: 1.13, rx: 0.196, rz: 0.138, z: -0.342, rot: 0.02 },
+  { y: 1.25, rx: 0.2, rz: 0.143, z: -0.345, rot: -0.02 },
+  { y: 1.35, rx: 0.192, rz: 0.135, z: -0.34, rot: -0.05 },
+  { y: 1.405, rx: 0.158, rz: 0.11, z: -0.332, rot: -0.05 }
+], 9, MAT.pack, pack);
+
+// soft flap swept over top and back
+sweep([
+  [0, 1.404, -0.225],
+  [0, 1.436, -0.315],
+  [0, 1.44, -0.395],
+  [0, 1.4, -0.462],
+  [0, 1.335, -0.478]
+], 0.33, 0.03, MAT.packD, pack, { steps: 14, center: [0, 1.3, -0.345] });
+
+// flap edge + leather tab
+const flapTab = box(0.036, 0.115, 0.018, MAT.strapD, pack, 0, 1.36, -0.487);
+box(0.052, 0.038, 0.02, MAT.metalD, pack, 0, 1.315, -0.492);
+
+// front pocket
+loft([
+  { y: 1.045, rx: 0.1, rz: 0.025, z: -0.468 },
+  { y: 1.075, rx: 0.116, rz: 0.034, z: -0.47 },
+  { y: 1.175, rx: 0.118, rz: 0.036, z: -0.47 },
+  { y: 1.195, rx: 0.108, rz: 0.028, z: -0.468 }
+], 8, MAT.pack, pack);
+const pocketFlap = box(0.235, 0.045, 0.062, MAT.packD, pack, 0, 1.205, -0.468);
+pocketFlap.rotation.x = -0.08;
+
+// carrying handle
+const handle = new THREE.Mesh(new THREE.TorusGeometry(0.042, 0.008, 4, 10, Math.PI), MAT.strapD);
+handle.position.set(0, 1.438, -0.335);
+handle.rotation.y = 0;
+add(pack, handle);
+box(0.045, 0.018, 0.026, MAT.metalD, pack, -0.052, 1.435, -0.335);
+box(0.045, 0.018, 0.026, MAT.metalD, pack, 0.052, 1.435, -0.335);
+
+// patches & seams
+plate([[-0.185, 1.075, -0.465], [-0.11, 1.062, -0.478], [-0.1, 1.14, -0.478], [-0.175, 1.152, -0.465]], MAT.patchTan, pack);
+plate([[0.07, 1.29, -0.472], [0.145, 1.3, -0.462], [0.133, 1.365, -0.463], [0.058, 1.357, -0.472]], MAT.patchBlue, pack);
+box(0.26, 0.006, 0.006, MAT.packD, pack, 0, 1.155, -0.482).castShadow = false;
+box(0.26, 0.006, 0.006, MAT.packD, pack, 0, 1.255, -0.478).castShadow = false;
+box(0.006, 0.24, 0.018, MAT.packD, pack, 0.196, 1.19, -0.36).castShadow = false;
+
+// straps
+const strapL = [
+  [0.148, 1.005, -0.3], [0.24, 1.06, -0.05], [0.238, 1.22, 0.168],
+  [0.216, 1.372, 0.108], [0.19, 1.418, -0.03], [0.17, 1.35, -0.21], [0.152, 1.29, -0.32]
+];
+const strapR = [
+  [-0.148, 1.005, -0.3], [-0.24, 1.06, -0.05], [-0.238, 1.22, 0.168],
+  [-0.216, 1.372, 0.108], [-0.19, 1.418, -0.03], [-0.17, 1.35, -0.21], [-0.152, 1.29, -0.32]
+];
+sweep(strapL, 0.074, 0.022, MAT.strapD, pack, { center: [0, 1.17, -0.02] });
+sweep(strapR, 0.074, 0.022, MAT.strapD, pack, { center: [0, 1.17, -0.02] });
+
+// strap slider above the gripping hand
+box(0.058, 0.028, 0.014, MAT.metalD, pack, -0.232, 1.32, 0.157);
+box(0.058, 0.028, 0.014, MAT.metalD, pack, 0.232, 1.32, 0.157);
+
+// rolled blanket
+const roll = new THREE.Group();
+roll.position.set(0, 0.93, -0.322);
+roll.rotation.z = Math.PI / 2;
+pack.add(roll);
+loft([
+  { y: -0.21, rx: 0.056, rz: 0.06 },
+  { y: -0.155, rx: 0.065, rz: 0.069 },
+  { y: -0.05, rx: 0.068, rz: 0.072 },
+  { y: 0.06, rx: 0.063, rz: 0.067 },
+  { y: 0.15, rx: 0.067, rz: 0.063 },
+  { y: 0.207, rx: 0.055, rz: 0.058 }
+], 8, MAT.blanket, roll);
+
+for (const s of [-1, 1]) {
+  const pts = [];
+  for (let i = 0; i <= 24; i++) {
+    const a = (i / 24) * TAU * 1.5;
+    const r = 0.008 + (i / 24) * 0.05;
+    pts.push([s * 0.207, Math.cos(a) * r, Math.sin(a) * r]);
+  }
+  add(pack, new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p => new V(...p))), 36, 0.0032, 3, false), MAT.blanketD));
+}
+for (const s of [-1, 1]) {
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.073, 0.007, 4, 12), MAT.strapD);
+  band.rotation.y = Math.PI / 2;
+  band.position.set(s * 0.115, 0.93, -0.322);
+  add(pack, band);
+  box(0.026, 0.028, 0.014, MAT.metalD, pack, s * 0.115, 0.995, -0.29);
+}
+
+// mug hanging on the side
+const mugPivot = new THREE.Group();
+mugPivot.position.set(0.197, 1.175, -0.36);
+pack.add(mugPivot);
+const mugBody = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.031, 0.075, 8, 1, true), MAT.metal);
+mugBody.position.set(0.032, -0.07, 0.0);
+add(mugPivot, mugBody);
+const mugBottom = new THREE.Mesh(new THREE.CircleGeometry(0.031, 8), MAT.metalD);
+mugBottom.rotation.x = Math.PI / 2;
+mugBottom.position.set(0.032, -0.107, 0);
+add(mugPivot, mugBottom);
+const mugHandle = new THREE.Mesh(new THREE.TorusGeometry(0.023, 0.0045, 4, 8, Math.PI * 1.25), MAT.metal);
+mugHandle.rotation.y = Math.PI / 2;
+mugHandle.rotation.z = -0.4;
+mugHandle.position.set(0.063, -0.068, 0.0);
+add(mugPivot, mugHandle);
+const mugLoop = new THREE.Mesh(new THREE.TorusGeometry(0.017, 0.005, 4, 8), MAT.bootD);
+mugLoop.rotation.y = Math.PI / 2;
+mugLoop.position.set(0.008, -0.008, 0);
+add(mugPivot, mugLoop);
+box(0.026, 0.024, 0.022, MAT.bootD, pack, 0.19, 1.18, -0.358);
+
+/* ============================================================
+   Animation
+   ============================================================ */
+const clock = new THREE.Clock();
+let elapsed = 0;
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  elapsed += dt;
+
+  const breath = Math.sin(elapsed * 1.15);
+
+  chestScale.scale.set(1 + breath * 0.004, 1 + breath * 0.007, 1 + breath * 0.004);
+  torsoPivot.rotation.x = 0.024 + breath * 0.006 + Math.sin(elapsed * 0.37) * 0.004;
+  torsoPivot.rotation.z = Math.sin(elapsed * 0.28) * 0.005;
+
+  headPivot.rotation.y = HEAD_BASE.y + Math.sin(elapsed * 0.31) * 0.038 + breath * 0.01;
+  headPivot.rotation.x = HEAD_BASE.x + Math.sin(elapsed * 0.24 + 1.1) * 0.016;
+  headPivot.rotation.z = HEAD_BASE.z + Math.sin(elapsed * 0.21 + 0.4) * 0.014;
+
+  leftArm.pivot.rotation.x = -0.008 + breath * 0.005;
+  leftArm.pivot.rotation.z = 0.004 + Math.sin(elapsed * 0.33 + 0.6) * 0.006;
+  rightArm.pivot.rotation.x = 0.006 + breath * 0.004;
+  rightArm.pivot.rotation.z = -0.004 + Math.sin(elapsed * 0.29 + 2.0) * 0.005;
+
+  scarfPivot.rotation.x = Math.sin(elapsed * 1.05) * 0.05;
+  scarfPivot.rotation.z = Math.sin(elapsed * 0.83 + 0.7) * 0.045;
+
+  mugPivot.rotation.z = Math.sin(elapsed * 1.6) * 0.07;
+  mugPivot.rotation.x = Math.sin(elapsed * 1.25 + 1.2) * 0.05;
+
+  controls.update();
+  renderer.render(scene, camera);
+});
+
+/* ============================================================
+   Sizing
+   ============================================================ */
+function applySize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+
+function initialFrame() {
+  const aspect = window.innerWidth / window.innerHeight;
+  const target = new V(0, 0.96, 0);
+  const dist = Math.min(8.6, Math.max(4.5, 5.6 / aspect));
+  const dir = new V(2.45, 1.34, 3.3).normalize();
+  camera.position.copy(target).addScaledVector(dir, dist);
+  controls.target.copy(target);
+  controls.update();
+}
+
+window.addEventListener('resize', applySize);
+applySize();
+initialFrame();
+</script>
+</body>
+</html>

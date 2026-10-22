@@ -1,0 +1,50 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic: 🧔
+      - generic:
+        - generic:
+          - generic: Бомж
+          - generic: 100 / 100
+        - generic: 100%
+    - generic:
+      - generic:
+        - generic: 🍾
+        - generic:
+          - generic: Бутылки Tab
+          - generic: "2"
+      - generic:
+        - generic: 🥫
+        - generic:
+          - generic: Мусор Tab
+          - generic: "3"
+      - generic:
+        - generic: 🍶
+        - generic:
+          - generic: Настойка Q
+          - generic: "0"
+    - generic:
+      - generic:
+        - generic: A/D
+        - text: Ходьба
+      - generic:
+        - generic: Space
+        - text: Прыжок
+      - generic:
+        - generic: J
+        - text: Удар
+      - generic:
+        - generic: K
+        - text: Бросок
+      - generic:
+        - generic: Tab
+        - text: Смена оружия
+      - generic:
+        - generic: E
+        - text: Обыск / Приёмка
+      - generic:
+        - generic: Q
+        - text: Выпить (+30 HP)
+      - generic:
+        - generic: R
+        - text: Сброс

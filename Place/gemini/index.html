@@ -1,0 +1,1788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Stylized Low-Poly Landfill Diorama</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #cfc9be;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // -------------------------------------------------------------
+    // 1. SEEDED PSEUDO-RANDOM NUMBER GENERATOR (Mulberry32)
+    // -------------------------------------------------------------
+    function createRNG(seed = 133709) {
+      let s = seed >>> 0;
+      return function() {
+        s = (s + 0x6D2B79F5) >>> 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    const rng = createRNG(48291);
+    function randRange(min, max) { return min + rng() * (max - min); }
+    function randChoice(arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+    // -------------------------------------------------------------
+    // 2. SCENE SETUP, RENDERER, LIGHTING & CAMERA
+    // -------------------------------------------------------------
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xcac3b7);
+    scene.fog = new THREE.FogExp2(0xcac3b7, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(36, window.innerWidth / window.innerHeight, 0.1, 150);
+    camera.position.set(20, 15, 23);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.target.set(0, 1.2, 0);
+    controls.minDistance = 9;
+    controls.maxDistance = 46;
+    controls.maxPolarAngle = Math.PI / 2 - 0.05; // Never sink below ground
+    controls.update();
+
+    // Presentation shadow-catcher plane beneath diorama
+    const shadowPlaneGeo = new THREE.PlaneGeometry(80, 80);
+    const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.32 });
+    const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+    shadowPlane.rotation.x = -Math.PI / 2;
+    shadowPlane.position.y = -2.52;
+    shadowPlane.receiveShadow = true;
+    scene.add(shadowPlane);
+
+    // Warm late-afternoon directional sunlight
+    const sunLight = new THREE.DirectionalLight(0xfff3de, 2.3);
+    sunLight.position.set(22, 28, 18);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 5;
+    sunLight.shadow.camera.far = 70;
+    const d = 16;
+    sunLight.shadow.camera.left = -d;
+    sunLight.shadow.camera.right = d;
+    sunLight.shadow.camera.top = d;
+    sunLight.shadow.camera.bottom = -d;
+    sunLight.shadow.bias = -0.0004;
+    scene.add(sunLight);
+
+    // Soft sky / ground fill
+    const hemiLight = new THREE.HemisphereLight(0xb5c8db, 0x6e5a44, 0.85);
+    scene.add(hemiLight);
+
+    // Soft cool directional fill for shadow readability
+    const fillLight = new THREE.DirectionalLight(0xa5bed6, 0.42);
+    fillLight.position.set(-20, 14, -16);
+    scene.add(fillLight);
+
+    // -------------------------------------------------------------
+    // 3. COLOR PALETTE & MATERIAL PALETTE
+    // -------------------------------------------------------------
+    const colors = {
+      dirtDust: 0x8e7152,
+      dirtDark: 0x634932,
+      dirtRock: 0x3b2b1d,
+      dirtBase: 0x22180f,
+      mudPath: 0x544737,
+      mudRuts: 0x433728,
+      water: 0x384a43,
+      trashCharcoal: 0x2b2b2d,
+      trashOlive: 0x4b5135,
+      trashBlue: 0x3d536b,
+      cardboardKraft: 0x93734a,
+      cardboardDark: 0x735735,
+      metalRust: 0x8a3e26,
+      metalDark: 0x35373a,
+      metalSheet: 0x787a7d,
+      dozerYellow: 0xd49b1a,
+      dozerDark: 0xb57e10,
+      dozerTracks: 0x292a2c,
+      dozerGlass: 0x273b47,
+      dumpsterGreen: 0x2f4c42,
+      applianceCream: 0xdcd5c3,
+      applianceRust: 0x783a24,
+      sofaGreen: 0x4e5b47,
+      sofaWood: 0x754d2a,
+      tireRubber: 0x232426,
+      bottleGreen: 0x325c3c,
+      bottleBrown: 0x6e4524,
+      bottleBlue: 0x446d7d,
+      canTin: 0xa4a7a8,
+      canRed: 0x8f3b2f,
+      canBlue: 0x3d5c75,
+      grassDry: 0x7e7c4b,
+      plasticOrange: 0xc85a22,
+      plasticBlue: 0x34648e,
+      paperWhite: 0xe0dbcd,
+      rockGray: 0x6f6a62
+    };
+
+    function mat(colorHex, roughness = 0.88, metalness = 0.05, extra = {}) {
+      return new THREE.MeshStandardMaterial({
+        color: colorHex,
+        roughness: roughness,
+        metalness: metalness,
+        flatShading: true,
+        ...extra
+      });
+    }
+
+    const materials = {
+      dirtDust: mat(colors.dirtDust, 0.95),
+      dirtDark: mat(colors.dirtDark, 0.95),
+      dirtRock: mat(colors.dirtRock, 0.98),
+      dirtBase: mat(colors.dirtBase, 0.98),
+      trashCharcoal: mat(colors.trashCharcoal, 0.75, 0.05),
+      trashOlive: mat(colors.trashOlive, 0.75, 0.05),
+      trashBlue: mat(colors.trashBlue, 0.75, 0.05),
+      cardboard: mat(colors.cardboardKraft, 0.95),
+      cardboardDark: mat(colors.cardboardDark, 0.95),
+      rust: mat(colors.metalRust, 0.85, 0.15),
+      steel: mat(colors.metalDark, 0.65, 0.45),
+      galvanized: mat(colors.metalSheet, 0.6, 0.3),
+      dozerYellow: mat(colors.dozerYellow, 0.7, 0.15),
+      dozerDark: mat(colors.dozerDark, 0.75, 0.1),
+      dozerTracks: mat(colors.dozerTracks, 0.9, 0.25),
+      dozerGlass: mat(colors.dozerGlass, 0.2, 0.5),
+      dumpster: mat(colors.dumpsterGreen, 0.75, 0.15),
+      appliance: mat(colors.applianceCream, 0.7, 0.05),
+      applianceRust: mat(colors.applianceRust, 0.9, 0.1),
+      sofa: mat(colors.sofaGreen, 0.95),
+      wood: mat(colors.sofaWood, 0.95),
+      tire: mat(colors.tireRubber, 0.92, 0.02),
+      bottleGreen: mat(colors.bottleGreen, 0.25, 0.1, { transparent: true, opacity: 0.88 }),
+      bottleBrown: mat(colors.bottleBrown, 0.28, 0.1, { transparent: true, opacity: 0.9 }),
+      bottleBlue: mat(colors.bottleBlue, 0.25, 0.1, { transparent: true, opacity: 0.88 }),
+      tin: mat(colors.canTin, 0.4, 0.55),
+      canRed: mat(colors.canRed, 0.5, 0.35),
+      canBlue: mat(colors.canBlue, 0.5, 0.35),
+      grass: mat(colors.grassDry, 0.95, 0.0, { side: THREE.DoubleSide }),
+      plasticOrange: mat(colors.plasticOrange, 0.75, 0.05),
+      plasticBlue: mat(colors.plasticBlue, 0.75, 0.05),
+      paper: mat(colors.paperWhite, 0.9, 0.0, { side: THREE.DoubleSide }),
+      rock: mat(colors.rockGray, 0.95),
+      water: new THREE.MeshStandardMaterial({
+        color: colors.water,
+        roughness: 0.12,
+        metalness: 0.08,
+        flatShading: true,
+        transparent: true,
+        opacity: 0.88
+      })
+    };
+
+    // -------------------------------------------------------------
+    // 4. TERRAIN HEIGHT & ELEVATION EVALUATION
+    // -------------------------------------------------------------
+    // Diorama base dimensions: ~22 units wide x 18 units deep
+    const BASE_W = 11.0;
+    const BASE_D = 9.0;
+
+    // Road curve points: starts at front-left entrance, curves towards bulldozer & main mound
+    const roadPoints = [
+      new THREE.Vector2(-7.2, 8.8),
+      new THREE.Vector2(-5.2, 5.8),
+      new THREE.Vector2(-3.4, 2.6),
+      new THREE.Vector2(-2.2, 0.2),
+      new THREE.Vector2(-1.5, -1.8)
+    ];
+
+    function distToRoad(x, z) {
+      let minDist = 1e6;
+      const pt = new THREE.Vector2(x, z);
+      for (let i = 0; i < roadPoints.length - 1; i++) {
+        const p1 = roadPoints[i];
+        const p2 = roadPoints[i + 1];
+        const line = new THREE.Vector2().subVectors(p2, p1);
+        const lenSq = line.lengthSq();
+        let t = ((pt.x - p1.x) * line.x + (pt.y - p1.y) * line.y) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        const proj = new THREE.Vector2(p1.x + t * line.x, p1.y + t * line.y);
+        const dist = pt.distanceTo(proj);
+        if (dist < minDist) minDist = dist;
+      }
+      return minDist;
+    }
+
+    function getTerrainHeight(x, z) {
+      // 1. Rolling gentle base terrain
+      let h = 0.22 * Math.sin(0.38 * x + 0.24 * z) + 0.18 * Math.cos(0.32 * z - 0.21 * x) + 0.08 * Math.sin(0.85 * x) * Math.cos(0.75 * z);
+
+      // 2. Main trash mound foundation (dominant mass at center-right)
+      const dMain = Math.hypot(x - 2.5, z - 0.5);
+      if (dMain < 5.2) {
+        const f = Math.cos((Math.PI * dMain) / (2 * 5.2));
+        h += 1.65 * f * f;
+      }
+      // Sub-peak on main mound
+      const dSubMain = Math.hypot(x - 3.8, z + 1.1);
+      if (dSubMain < 3.4) {
+        const f = Math.cos((Math.PI * dSubMain) / (2 * 3.4));
+        h += 0.85 * f * f;
+      }
+
+      // 3. Secondary pile 1 (rear left)
+      const dSec1 = Math.hypot(x + 5.2, z + 4.2);
+      if (dSec1 < 3.6) {
+        const f = Math.cos((Math.PI * dSec1) / (2 * 3.6));
+        h += 1.05 * f * f;
+      }
+
+      // 4. Secondary pile 2 (rear right)
+      const dSec2 = Math.hypot(x - 6.2, z + 4.4);
+      if (dSec2 < 3.4) {
+        const f = Math.cos((Math.PI * dSec2) / (2 * 3.4));
+        h += 0.95 * f * f;
+      }
+
+      // 5. Entrance road & wheel ruts
+      const rDist = distToRoad(x, z);
+      if (rDist < 1.9) {
+        // Lower road surface towards ~0.08
+        const roadFactor = Math.cos((Math.PI * rDist) / (2 * 1.9));
+        h = THREE.MathUtils.lerp(h, 0.06, roadFactor * 0.75);
+
+        // Wheel ruts: depressions at ~0.65 units from centerline
+        const rutDist1 = Math.abs(rDist - 0.65);
+        if (rutDist1 < 0.28) {
+          const rf = Math.cos((Math.PI * rutDist1) / (2 * 0.28));
+          h -= 0.16 * rf * rf;
+        }
+        const rutDist2 = Math.abs(rDist + 0.65);
+        if (rutDist2 < 0.28) {
+          const rf = Math.cos((Math.PI * rutDist2) / (2 * 0.28));
+          h -= 0.14 * rf * rf;
+        }
+      }
+
+      // 6. Puddle depression in foreground (left of road entrance)
+      const puddleDx = (x + 5.6) / 1.7;
+      const puddleDz = (z - 4.8) / 1.3;
+      const dPuddle = Math.hypot(puddleDx, puddleDz);
+      if (dPuddle < 1.0) {
+        const pf = Math.cos((Math.PI * dPuddle) / 2);
+        h -= 0.38 * pf * pf;
+      }
+
+      // 7. Smooth outer edge perimeter drop-off so cliff sides are clean
+      const edgeNorm = Math.hypot(x / BASE_W, z / BASE_D);
+      if (edgeNorm > 0.82) {
+        const blend = Math.min(1.0, (edgeNorm - 0.82) / 0.18);
+        h = THREE.MathUtils.lerp(h, 0.05, blend * 0.75);
+      }
+
+      return h;
+    }
+
+    // -------------------------------------------------------------
+    // 5. BUILD WATERTIGHT DIORAMA BASE WITH STRATIFIED SOIL LAYERS
+    // -------------------------------------------------------------
+    function createDioramaBase() {
+      const baseGroup = new THREE.Group();
+      const numSegments = 54;
+      const numRings = 22;
+
+      // Generate boundary contour points P(theta)
+      function getBoundaryPoint(angle) {
+        // Superellipse with organic harmonics
+        const p = 3.2; // rounded rectangle profile
+        const cosP = Math.sign(Math.cos(angle)) * Math.pow(Math.abs(Math.cos(angle)), 2 / p);
+        const sinP = Math.sign(Math.sin(angle)) * Math.pow(Math.abs(Math.sin(angle)), 2 / p);
+        const harmonic = 1.0 + 0.032 * Math.sin(3 * angle + 0.4) - 0.024 * Math.cos(5 * angle - 0.7);
+        const x = BASE_W * cosP * harmonic;
+        const z = BASE_D * sinP * harmonic;
+        return { x, z };
+      }
+
+      const boundaryPts = [];
+      for (let i = 0; i < numSegments; i++) {
+        const angle = (i / numSegments) * Math.PI * 2;
+        boundaryPts.push(getBoundaryPoint(angle));
+      }
+
+      // --- Top Surface Mesh ---
+      const surfaceVerts = [];
+      const surfaceColors = [];
+      const surfaceIndices = [];
+
+      // Center vertex index 0
+      const centerH = getTerrainHeight(0, 0);
+      surfaceVerts.push(0, centerH, 0);
+      surfaceColors.push(0.55, 0.44, 0.32);
+
+      // Ring vertices
+      for (let r = 1; r <= numRings; r++) {
+        const frac = r / numRings;
+        for (let s = 0; s < numSegments; s++) {
+          const bp = boundaryPts[s];
+          const vx = bp.x * frac + (r < numRings ? Math.sin((s * 17 + r * 13) % 100) * 0.12 * (1 - frac * 0.5) : 0);
+          const vz = bp.z * frac + (r < numRings ? Math.cos((s * 17 + r * 13) % 100) * 0.12 * (1 - frac * 0.5) : 0);
+
+          const vy = getTerrainHeight(vx, vz);
+          surfaceVerts.push(vx, vy, vz);
+
+          // Compute vertex color based on features
+          const rDist = distToRoad(vx, vz);
+          const pDist = Math.hypot((vx + 5.6) / 1.7, (vz - 4.8) / 1.3);
+          const c = new THREE.Color(colors.dirtDust);
+
+          if (pDist < 1.1) {
+            // Dark muddy silt around puddle
+            c.setHex(colors.mudRuts);
+          } else if (rDist < 1.8) {
+            // Muddy access road
+            c.lerp(new THREE.Color(colors.mudPath), 0.7);
+            if (Math.abs(rDist - 0.65) < 0.32 || Math.abs(rDist + 0.65) < 0.32) {
+              c.lerp(new THREE.Color(colors.mudRuts), 0.6);
+            }
+          } else if (vy > 0.8) {
+            // Mound base soil
+            c.lerp(new THREE.Color(colors.dirtDark), 0.55);
+          } else {
+            // Subtle natural soil tone variation
+            const toneVar = Math.sin(vx * 0.8) * Math.cos(vz * 0.8);
+            if (toneVar > 0.3) c.lerp(new THREE.Color(0x997b5a), 0.3);
+            else if (toneVar < -0.3) c.lerp(new THREE.Color(0x7e6245), 0.3);
+          }
+
+          surfaceColors.push(c.r, c.g, c.b);
+        }
+      }
+
+      // Triangles: Center to Ring 1
+      for (let s = 0; s < numSegments; s++) {
+        const next = (s + 1) % numSegments;
+        surfaceIndices.push(0, 1 + s, 1 + next);
+      }
+
+      // Triangles: Ring to Ring
+      for (let r = 1; r < numRings; r++) {
+        const curOffset = 1 + (r - 1) * numSegments;
+        const nextOffset = 1 + r * numSegments;
+        for (let s = 0; s < numSegments; s++) {
+          const nextS = (s + 1) % numSegments;
+          const i0 = curOffset + s;
+          const i1 = nextOffset + s;
+          const i2 = nextOffset + nextS;
+          const i3 = curOffset + nextS;
+          surfaceIndices.push(i0, i1, i2);
+          surfaceIndices.push(i0, i2, i3);
+        }
+      }
+
+      const surfaceGeo = new THREE.BufferGeometry();
+      surfaceGeo.setAttribute('position', new THREE.Float32BufferAttribute(surfaceVerts, 3));
+      surfaceGeo.setAttribute('color', new THREE.Float32BufferAttribute(surfaceColors, 3));
+      surfaceGeo.setIndex(surfaceIndices);
+      surfaceGeo.computeVertexNormals();
+
+      const surfaceMat = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.94,
+        metalness: 0.04,
+        flatShading: true
+      });
+      const surfaceMesh = new THREE.Mesh(surfaceGeo, surfaceMat);
+      surfaceMesh.receiveShadow = true;
+      surfaceMesh.castShadow = true;
+      baseGroup.add(surfaceMesh);
+
+      // --- Side Walls (Exposed Strata Layers) ---
+      // Level 0: Outer surface boundary vertices
+      // Level 1: Upper topsoil cut seam (Y = -0.7)
+      // Level 2: Middle clay/subsoil seam (Y = -1.6)
+      // Level 3: Bottom bedrock/pedestal base (Y = -2.5)
+      const outerRingStart = 1 + (numRings - 1) * numSegments;
+      const bHeights = [];
+      for (let s = 0; s < numSegments; s++) {
+        bHeights.push(surfaceVerts[(outerRingStart + s) * 3 + 1]);
+      }
+
+      function buildSkirtBand(yTopArr, yBotVal, flareTop, flareBot, colorHex, roughness = 0.96) {
+        const verts = [];
+        const indices = [];
+        for (let s = 0; s < numSegments; s++) {
+          const bp = boundaryPts[s];
+          const yTop = typeof yTopArr === 'number' ? yTopArr : yTopArr[s];
+          verts.push(bp.x * flareTop, yTop, bp.z * flareTop);
+          verts.push(bp.x * flareBot, yBotVal, bp.z * flareBot);
+        }
+        for (let s = 0; s < numSegments; s++) {
+          const nextS = (s + 1) % numSegments;
+          const i0 = s * 2;
+          const i1 = s * 2 + 1;
+          const i2 = nextS * 2 + 1;
+          const i3 = nextS * 2;
+          indices.push(i0, i1, i2);
+          indices.push(i0, i2, i3);
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+        geo.setIndex(indices);
+        geo.computeVertexNormals();
+        const skirtMesh = new THREE.Mesh(geo, mat(colorHex, roughness, 0.05));
+        skirtMesh.receiveShadow = true;
+        skirtMesh.castShadow = true;
+        return skirtMesh;
+      }
+
+      // Band 1: Upper topsoil layer
+      baseGroup.add(buildSkirtBand(bHeights, -0.75, 1.0, 1.015, colors.dirtDark));
+      // Band 2: Subsoil clay & gravel stratum
+      baseGroup.add(buildSkirtBand(-0.75, -1.65, 1.015, 1.032, colors.dirtRock));
+      // Band 3: Bedrock pedestal base
+      baseGroup.add(buildSkirtBand(-1.65, -2.5, 1.032, 1.045, colors.dirtBase));
+
+      // Bottom cap plate
+      const botVerts = [0, -2.5, 0];
+      const botIndices = [];
+      for (let s = 0; s < numSegments; s++) {
+        const bp = boundaryPts[s];
+        botVerts.push(bp.x * 1.045, -2.5, bp.z * 1.045);
+      }
+      for (let s = 0; s < numSegments; s++) {
+        const nextS = (s + 1) % numSegments;
+        botIndices.push(0, 1 + nextS, 1 + s); // facing downward
+      }
+      const botGeo = new THREE.BufferGeometry();
+      botGeo.setAttribute('position', new THREE.Float32BufferAttribute(botVerts, 3));
+      botGeo.setIndex(botIndices);
+      botGeo.computeVertexNormals();
+      const botMesh = new THREE.Mesh(botGeo, mat(colors.dirtBase, 0.98));
+      baseGroup.add(botMesh);
+
+      // Embedded rocks around the edges
+      const rockGeo = new THREE.DodecahedronGeometry(0.35, 0);
+      for (let i = 0; i < 18; i++) {
+        const angle = randRange(0, Math.PI * 2);
+        const bp = getBoundaryPoint(angle);
+        const rFrac = randRange(0.88, 0.97);
+        const rx = bp.x * rFrac;
+        const rz = bp.z * rFrac;
+        const ry = getTerrainHeight(rx, rz);
+        const rMesh = new THREE.Mesh(rockGeo, materials.rock);
+        rMesh.position.set(rx, ry - 0.08, rz);
+        const scale = randRange(0.6, 1.3);
+        rMesh.scale.set(scale * randRange(0.8, 1.3), scale * randRange(0.6, 1.0), scale * randRange(0.8, 1.3));
+        rMesh.rotation.set(randRange(0, 3), randRange(0, 3), randRange(0, 3));
+        rMesh.castShadow = true;
+        rMesh.receiveShadow = true;
+        baseGroup.add(rMesh);
+      }
+
+      return baseGroup;
+    }
+
+    const dioramaBase = createDioramaBase();
+    scene.add(dioramaBase);
+
+    // -------------------------------------------------------------
+    // 6. SHALLOW PUDDLE & MUDDY SHORELINE
+    // -------------------------------------------------------------
+    const puddleGroup = new THREE.Group();
+    const puddleWaterGeo = new THREE.CircleGeometry(1.6, 18);
+    // Deform puddle edge
+    const pPos = puddleWaterGeo.attributes.position;
+    for (let i = 1; i < pPos.count; i++) {
+      const angle = Math.atan2(pPos.getY(i), pPos.getX(i));
+      const rad = 1.6 * (1.0 + 0.16 * Math.sin(angle * 3) - 0.12 * Math.cos(angle * 5));
+      pPos.setX(i, Math.cos(angle) * rad);
+      pPos.setY(i, Math.sin(angle) * (rad * 0.76)); // ellipse shape
+    }
+    puddleWaterGeo.computeVertexNormals();
+    const puddleWaterMesh = new THREE.Mesh(puddleWaterGeo, materials.water);
+    puddleWaterMesh.rotation.x = -Math.PI / 2;
+    puddleWaterMesh.position.set(-5.6, -0.16, 4.8);
+    puddleWaterMesh.receiveShadow = true;
+    puddleGroup.add(puddleWaterMesh);
+
+    // Dark wet mud rim around the puddle
+    const puddleRimGeo = new THREE.RingGeometry(1.4, 2.1, 18);
+    const prPos = puddleRimGeo.attributes.position;
+    for (let i = 0; i < prPos.count; i++) {
+      const x = prPos.getX(i);
+      const y = prPos.getY(i);
+      const angle = Math.atan2(y, x);
+      const dist = Math.hypot(x, y);
+      const mod = 1.0 + 0.14 * Math.sin(angle * 3);
+      prPos.setX(i, Math.cos(angle) * dist * mod);
+      prPos.setY(i, Math.sin(angle) * dist * mod * 0.76);
+    }
+    puddleRimGeo.computeVertexNormals();
+    const puddleRimMesh = new THREE.Mesh(puddleRimGeo, mat(colors.mudRuts, 0.96));
+    puddleRimMesh.rotation.x = -Math.PI / 2;
+    puddleRimMesh.position.set(-5.6, -0.17, 4.8);
+    puddleRimMesh.receiveShadow = true;
+    puddleGroup.add(puddleRimMesh);
+
+    // Subtle puddle animated ripple ring
+    const rippleGeo = new THREE.RingGeometry(0.1, 0.16, 24);
+    const rippleMat = new THREE.MeshBasicMaterial({
+      color: 0x6e827b,
+      transparent: true,
+      opacity: 0.0,
+      side: THREE.DoubleSide
+    });
+    const rippleMesh = new THREE.Mesh(rippleGeo, rippleMat);
+    rippleMesh.rotation.x = -Math.PI / 2;
+    rippleMesh.position.set(-5.6, -0.155, 4.8);
+    rippleMesh.scale.set(1.0, 0.76, 1.0);
+    puddleGroup.add(rippleMesh);
+
+    scene.add(puddleGroup);
+
+    // -------------------------------------------------------------
+    // 7. PROCEDURAL RECOGNIZABLE OBJECT GENERATORS
+    // -------------------------------------------------------------
+
+    // --- Garbage Bag ---
+    function createGarbageBag(radius = 0.55, colorMat = materials.trashCharcoal) {
+      const bag = new THREE.Group();
+      // Body: deformed icosahedron
+      const bodyGeo = new THREE.IcosahedronGeometry(radius, 1);
+      const bPos = bodyGeo.attributes.position;
+      for (let i = 0; i < bPos.count; i++) {
+        let x = bPos.getX(i);
+        let y = bPos.getY(i);
+        let z = bPos.getZ(i);
+        // Squash slightly and add organic lumps
+        y *= 0.82;
+        const noise = 1.0 + 0.18 * Math.sin(x * 5) * Math.cos(z * 5) - 0.12 * Math.sin(y * 6);
+        bPos.setXYZ(i, x * noise, y * noise + radius * 0.1, z * noise);
+      }
+      bodyGeo.computeVertexNormals();
+      const body = new THREE.Mesh(bodyGeo, colorMat);
+      body.castShadow = true;
+      body.receiveShadow = true;
+      bag.add(body);
+
+      // Gathered neck & twisted tie
+      const neckGeo = new THREE.CylinderGeometry(radius * 0.18, radius * 0.28, radius * 0.25, 6);
+      const neck = new THREE.Mesh(neckGeo, colorMat);
+      neck.position.y = radius * 0.82;
+      neck.castShadow = true;
+      bag.add(neck);
+
+      // Top twisted knot
+      const knotGeo = new THREE.ConeGeometry(radius * 0.22, radius * 0.35, 5);
+      const knot = new THREE.Mesh(knotGeo, colorMat);
+      knot.position.y = radius * 1.02;
+      knot.rotation.z = randRange(-0.25, 0.25);
+      knot.castShadow = true;
+      bag.add(knot);
+
+      return bag;
+    }
+
+    // --- Cardboard Box ---
+    function createCardboardBox(w = 0.8, h = 0.6, d = 0.7, isOpen = false, isCrushed = false) {
+      const box = new THREE.Group();
+      if (!isOpen) {
+        const geo = new THREE.BoxGeometry(w, h, d);
+        if (isCrushed) {
+          const p = geo.attributes.position;
+          for (let i = 0; i < p.count; i++) {
+            if (p.getY(i) > 0 && p.getX(i) > 0) {
+              p.setY(i, p.getY(i) - h * 0.28);
+              p.setX(i, p.getX(i) - w * 0.15);
+            }
+          }
+          geo.computeVertexNormals();
+        }
+        const mesh = new THREE.Mesh(geo, materials.cardboard);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        box.add(mesh);
+
+        // Seam tape
+        const tapeGeo = new THREE.PlaneGeometry(w * 0.98, d * 0.2);
+        const tape = new THREE.Mesh(tapeGeo, materials.cardboardDark);
+        tape.rotation.x = -Math.PI / 2;
+        tape.position.y = h * 0.505;
+        box.add(tape);
+      } else {
+        // Open box: hollow walls + 4 flaps
+        const wallThick = 0.04;
+        const outer = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), materials.cardboard);
+        outer.castShadow = true;
+        outer.receiveShadow = true;
+        box.add(outer);
+
+        // Dark interior recess plate
+        const interior = new THREE.Mesh(new THREE.PlaneGeometry(w - wallThick * 2, d - wallThick * 2), materials.cardboardDark);
+        interior.rotation.x = -Math.PI / 2;
+        interior.position.y = h * 0.48;
+        box.add(interior);
+
+        // Flaps along top edges
+        const flapL = new THREE.Mesh(new THREE.PlaneGeometry(wallThick, d * 0.85), materials.cardboard);
+        flapL.rotation.z = Math.PI / 2.8;
+        flapL.position.set(-w * 0.52, h * 0.55, 0);
+        box.add(flapL);
+
+        const flapR = new THREE.Mesh(new THREE.PlaneGeometry(wallThick, d * 0.85), materials.cardboard);
+        flapR.rotation.z = -Math.PI / 3.2;
+        flapR.position.set(w * 0.52, h * 0.55, 0);
+        box.add(flapR);
+      }
+      return box;
+    }
+
+    // --- Glass Bottle ---
+    function createBottle(colorMat = materials.bottleGreen) {
+      const bottle = new THREE.Group();
+      // Body
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.28, 7), colorMat);
+      body.castShadow = true;
+      body.receiveShadow = true;
+      bottle.add(body);
+      // Shoulder
+      const shoulder = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.08, 0.08, 7), colorMat);
+      shoulder.position.y = 0.18;
+      shoulder.castShadow = true;
+      bottle.add(shoulder);
+      // Neck & lip
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.038, 0.14, 7), colorMat);
+      neck.position.y = 0.28;
+      neck.castShadow = true;
+      bottle.add(neck);
+      return bottle;
+    }
+
+    // --- Metal Can ---
+    function createCan(colorMat = materials.tin, isCrushed = false) {
+      const can = new THREE.Group();
+      const r = 0.08;
+      const h = 0.2;
+      const geo = new THREE.CylinderGeometry(r, r, h, 8);
+      if (isCrushed) {
+        const pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          if (Math.abs(pos.getY(i)) < h * 0.3) {
+            pos.setX(i, pos.getX(i) * 0.65);
+            pos.setZ(i, pos.getZ(i) * 0.7);
+          }
+        }
+        geo.computeVertexNormals();
+      }
+      const body = new THREE.Mesh(geo, colorMat);
+      body.castShadow = true;
+      body.receiveShadow = true;
+      can.add(body);
+
+      // Top/bottom rim rings
+      const rimGeo = new THREE.TorusGeometry(r * 0.95, 0.015, 4, 8);
+      rimGeo.rotateX(Math.PI / 2);
+      const topRim = new THREE.Mesh(rimGeo, materials.tin);
+      topRim.position.y = h * 0.5;
+      can.add(topRim);
+      const botRim = new THREE.Mesh(rimGeo, materials.tin);
+      botRim.position.y = -h * 0.5;
+      can.add(botRim);
+      return can;
+    }
+
+    // --- Old Tire ---
+    function createTire(radius = 0.5, tube = 0.18) {
+      const tire = new THREE.Group();
+      const geo = new THREE.TorusGeometry(radius, tube, 8, 14);
+      geo.rotateX(Math.PI / 2);
+      const mesh = new THREE.Mesh(geo, materials.tire);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      tire.add(mesh);
+
+      // Geometric tread lugs
+      const lugCount = 12;
+      const lugGeo = new THREE.BoxGeometry(0.06, tube * 0.8, 0.1);
+      for (let i = 0; i < lugCount; i++) {
+        const a = (i / lugCount) * Math.PI * 2;
+        const lug = new THREE.Mesh(lugGeo, materials.tire);
+        lug.position.set(Math.cos(a) * (radius + tube * 0.85), 0, Math.sin(a) * (radius + tube * 0.85));
+        lug.rotation.y = -a;
+        lug.castShadow = true;
+        tire.add(lug);
+      }
+      return tire;
+    }
+
+    // --- Scrap Metal Corrugated Sheet ---
+    function createCorrugatedSheet(w = 1.6, h = 1.2) {
+      const sheet = new THREE.Group();
+      const segments = 10;
+      const geo = new THREE.PlaneGeometry(w, h, segments, 1);
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const fold = Math.sin((x / w) * Math.PI * 6) * 0.06;
+        pos.setZ(i, fold);
+      }
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, materials.rust);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.material.side = THREE.DoubleSide;
+      sheet.add(mesh);
+      return sheet;
+    }
+
+    // --- Steel I-Beam ---
+    function createIBeam(len = 2.4, w = 0.28, h = 0.28) {
+      const beam = new THREE.Group();
+      const thick = 0.04;
+      // Top flange
+      const tf = new THREE.Mesh(new THREE.BoxGeometry(w, thick, len), materials.rust);
+      tf.position.y = h * 0.5;
+      tf.castShadow = true;
+      beam.add(tf);
+      // Bottom flange
+      const bf = new THREE.Mesh(new THREE.BoxGeometry(w, thick, len), materials.rust);
+      bf.position.y = -h * 0.5;
+      bf.castShadow = true;
+      beam.add(bf);
+      // Center web
+      const web = new THREE.Mesh(new THREE.BoxGeometry(thick, h - thick * 2, len), materials.rust);
+      web.castShadow = true;
+      beam.add(web);
+      return beam;
+    }
+
+    // -------------------------------------------------------------
+    // 8. LARGE DISCARDED PROPS (Refrigerator, Sofa, Oil Drums)
+    // -------------------------------------------------------------
+
+    // --- Abandoned Refrigerator ---
+    function createRefrigerator() {
+      const fridge = new THREE.Group();
+      const w = 1.15;
+      const h = 2.1;
+      const d = 1.05;
+
+      // Outer casing box with open front
+      const casing = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), materials.appliance);
+      casing.castShadow = true;
+      casing.receiveShadow = true;
+      fridge.add(casing);
+
+      // Dark recessed interior cavity
+      const cavity = new THREE.Mesh(new THREE.BoxGeometry(w * 0.82, h * 0.88, 0.15), mat(0x181816, 0.95));
+      cavity.position.set(0, 0, d * 0.44);
+      fridge.add(cavity);
+
+      // Two interior wire shelves
+      for (let yOff of [-0.2, 0.35]) {
+        const shelf = new THREE.Mesh(new THREE.BoxGeometry(w * 0.78, 0.03, 0.12), materials.steel);
+        shelf.position.set(0, yOff, d * 0.44);
+        fridge.add(shelf);
+      }
+
+      // Rusty base kickplate
+      const kickplate = new THREE.Mesh(new THREE.BoxGeometry(w * 1.01, 0.22, d * 1.01), materials.applianceRust);
+      kickplate.position.set(0, -h * 0.44, 0);
+      kickplate.castShadow = true;
+      fridge.add(kickplate);
+
+      // Door hanging open at ~42 degrees
+      const doorGroup = new THREE.Group();
+      doorGroup.position.set(w * 0.5, 0, d * 0.5); // hinge at right front edge
+
+      const door = new THREE.Mesh(new THREE.BoxGeometry(w * 0.98, h * 0.94, 0.12), materials.appliance);
+      door.position.set(-w * 0.49, 0, 0.06);
+      door.castShadow = true;
+      door.receiveShadow = true;
+      doorGroup.add(door);
+
+      // Magnetic seal / interior door liner
+      const doorLiner = new THREE.Mesh(new THREE.BoxGeometry(w * 0.85, h * 0.82, 0.04), mat(0x2d2b27, 0.9));
+      doorLiner.position.set(-w * 0.49, 0, -0.02);
+      doorGroup.add(doorLiner);
+
+      // Rust patch on door bottom
+      const doorRust = new THREE.Mesh(new THREE.BoxGeometry(w * 0.99, 0.32, 0.13), materials.applianceRust);
+      doorRust.position.set(-w * 0.49, -h * 0.36, 0.06);
+      doorGroup.add(doorRust);
+
+      doorGroup.rotation.y = 0.75; // swing open ~43 degrees
+      fridge.add(doorGroup);
+
+      return fridge;
+    }
+
+    // --- Broken Sofa ---
+    function createBrokenSofa() {
+      const sofa = new THREE.Group();
+      const w = 2.2;
+      const d = 0.98;
+
+      // Base bottom frame
+      const base = new THREE.Mesh(new THREE.BoxGeometry(w, 0.36, d), materials.sofa);
+      base.castShadow = true;
+      base.receiveShadow = true;
+      sofa.add(base);
+
+      // Backrest
+      const back = new THREE.Mesh(new THREE.BoxGeometry(w, 0.82, 0.28), materials.sofa);
+      back.position.set(0, 0.52, -d * 0.36);
+      back.rotation.x = -0.12;
+      back.castShadow = true;
+      back.receiveShadow = true;
+      sofa.add(back);
+
+      // Intact right armrest
+      const armR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.58, d * 0.95), materials.sofa);
+      armR.position.set(w * 0.48, 0.38, 0);
+      armR.castShadow = true;
+      sofa.add(armR);
+
+      // Damaged left armrest with exposed wooden support
+      const armLBroken = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.3, d * 0.7), materials.sofa);
+      armLBroken.position.set(-w * 0.48, 0.22, -0.08);
+      armLBroken.rotation.z = -0.18;
+      armLBroken.castShadow = true;
+      sofa.add(armLBroken);
+
+      // Exposed wooden support struts
+      const woodStrut1 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.42, 0.08), materials.wood);
+      woodStrut1.position.set(-w * 0.48, 0.36, 0.22);
+      woodStrut1.rotation.z = 0.22;
+      woodStrut1.castShadow = true;
+      sofa.add(woodStrut1);
+
+      const woodStrut2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.35, 0.06), materials.wood);
+      woodStrut2.position.set(-w * 0.46, 0.32, -0.15);
+      woodStrut2.rotation.x = -0.28;
+      woodStrut2.castShadow = true;
+      sofa.add(woodStrut2);
+
+      // Seat cushions: right one intact, left one sagging/tilted
+      const cushionR = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.22, 0.62), materials.sofa);
+      cushionR.position.set(0.42, 0.26, 0.08);
+      cushionR.castShadow = true;
+      sofa.add(cushionR);
+
+      const cushionL = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.2, 0.62), materials.sofa);
+      cushionL.position.set(-0.42, 0.18, 0.08);
+      cushionL.rotation.z = -0.18; // sagging depression
+      cushionL.rotation.x = 0.12;
+      cushionL.castShadow = true;
+      sofa.add(cushionL);
+
+      return sofa;
+    }
+
+    // --- Rusty Oil Barrel ---
+    function createBarrel(isDented = false) {
+      const barrel = new THREE.Group();
+      const r = 0.42;
+      const h = 1.15;
+      const geo = new THREE.CylinderGeometry(r, r, h, 12, 3);
+      if (isDented) {
+        const pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          const y = pos.getY(i);
+          if (Math.abs(y) < h * 0.25 && pos.getX(i) > 0) {
+            pos.setX(i, pos.getX(i) * 0.72);
+            pos.setZ(i, pos.getZ(i) * 0.78);
+          }
+        }
+        geo.computeVertexNormals();
+      }
+      const body = new THREE.Mesh(geo, materials.rust);
+      body.castShadow = true;
+      body.receiveShadow = true;
+      barrel.add(body);
+
+      // Rib rings
+      const hoopGeo = new THREE.TorusGeometry(r * 1.02, 0.025, 4, 12);
+      hoopGeo.rotateX(Math.PI / 2);
+      for (let yOff of [-h * 0.22, h * 0.22, -h * 0.48, h * 0.48]) {
+        const hoop = new THREE.Mesh(hoopGeo, materials.steel);
+        hoop.position.y = yOff;
+        hoop.castShadow = true;
+        barrel.add(hoop);
+      }
+      return barrel;
+    }
+
+    // -------------------------------------------------------------
+    // 9. TIPPED DUMPSTER
+    // -------------------------------------------------------------
+    function createDumpster() {
+      const dumpster = new THREE.Group();
+      const w = 2.4;
+      const h = 1.45;
+      const d = 1.5;
+
+      // Trapezoidal main body (wider at top, narrower at bottom)
+      const bodyGeo = new THREE.CylinderGeometry(Math.hypot(w, d) * 0.44, Math.hypot(w * 0.85, d * 0.85) * 0.44, h, 4);
+      bodyGeo.rotateY(Math.PI / 4);
+      bodyGeo.scale(w / (Math.hypot(w, d) * 0.88), 1, d / (Math.hypot(w, d) * 0.88));
+      const body = new THREE.Mesh(bodyGeo, materials.dumpster);
+      body.castShadow = true;
+      body.receiveShadow = true;
+      dumpster.add(body);
+
+      // Top perimeter lip / rim
+      const lipGeo = new THREE.BoxGeometry(w * 1.05, 0.08, d * 1.05);
+      const lip = new THREE.Mesh(lipGeo, materials.steel);
+      lip.position.y = h * 0.5;
+      lip.castShadow = true;
+      dumpster.add(lip);
+
+      // Forklift lifting sleeves on sides
+      for (let s of [-1, 1]) {
+        const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.22, d * 0.8), materials.steel);
+        sleeve.position.set(s * (w * 0.52), 0.1, 0);
+        sleeve.castShadow = true;
+        dumpster.add(sleeve);
+      }
+
+      // Reinforcement side ribs
+      for (let s of [-w * 0.28, 0, w * 0.28]) {
+        const rib = new THREE.Mesh(new THREE.BoxGeometry(0.06, h * 0.78, 0.06), materials.steel);
+        rib.position.set(s, -0.05, d * 0.5);
+        rib.castShadow = true;
+        dumpster.add(rib);
+      }
+
+      // 4 Bottom caster brackets
+      for (let sx of [-1, 1]) {
+        for (let sz of [-1, 1]) {
+          const caster = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), materials.steel);
+          caster.position.set(sx * (w * 0.38), -h * 0.55, sz * (d * 0.38));
+          caster.castShadow = true;
+          dumpster.add(caster);
+        }
+      }
+
+      // Rust patch across bottom
+      const rustBottom = new THREE.Mesh(new THREE.BoxGeometry(w * 0.92, 0.35, d * 0.92), materials.rust);
+      rustBottom.position.y = -h * 0.42;
+      dumpster.add(rustBottom);
+
+      // Dark interior cavity & garbage bags inside
+      const cavity = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.85, d * 0.85), mat(0x181a17, 0.95));
+      cavity.rotation.x = -Math.PI / 2;
+      cavity.position.y = h * 0.44;
+      dumpster.add(cavity);
+
+      const bagIn1 = createGarbageBag(0.48, materials.trashCharcoal);
+      bagIn1.position.set(-0.45, h * 0.42, -0.2);
+      dumpster.add(bagIn1);
+
+      const bagIn2 = createGarbageBag(0.44, materials.trashOlive);
+      bagIn2.position.set(0.4, h * 0.45, 0.15);
+      dumpster.add(bagIn2);
+
+      // Hinged split lids
+      // Rear lid folded back ~110 degrees
+      const lidRear = new THREE.Mesh(new THREE.BoxGeometry(w * 1.02, 0.05, d * 0.5), materials.steel);
+      lidRear.position.set(0, h * 0.65, -d * 0.42);
+      lidRear.rotation.x = -1.8;
+      lidRear.castShadow = true;
+      dumpster.add(lidRear);
+
+      // Front lid propped open ~35 degrees
+      const lidFront = new THREE.Mesh(new THREE.BoxGeometry(w * 1.02, 0.05, d * 0.52), materials.steel);
+      lidFront.position.set(0, h * 0.58, d * 0.22);
+      lidFront.rotation.x = 0.58;
+      lidFront.castShadow = true;
+      dumpster.add(lidFront);
+
+      return dumpster;
+    }
+
+    // -------------------------------------------------------------
+    // 10. STYLIZED SMALL BULLDOZER
+    // -------------------------------------------------------------
+    function createBulldozer() {
+      const dozer = new THREE.Group();
+
+      // --- Chassis & Belly Pan ---
+      const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 2.7), materials.dozerDark);
+      chassis.position.y = 0.55;
+      chassis.castShadow = true;
+      chassis.receiveShadow = true;
+      dozer.add(chassis);
+
+      // Engine Compartment / Bonnet (front half)
+      const engineHood = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.72, 1.45), materials.dozerYellow);
+      engineHood.position.set(0, 1.05, 0.55);
+      engineHood.castShadow = true;
+      engineHood.receiveShadow = true;
+      dozer.add(engineHood);
+
+      // Radiator front grill
+      const grill = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.58, 0.08), materials.steel);
+      grill.position.set(0, 1.02, 1.3);
+      dozer.add(grill);
+
+      // Grill horizontal slats
+      for (let y = 0.85; y <= 1.25; y += 0.09) {
+        const slat = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.03, 0.04), materials.dozerDark);
+        slat.position.set(0, y, 1.33);
+        dozer.add(slat);
+      }
+
+      // Exhaust pipe & rain cap flapper
+      const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.75, 6), materials.rust);
+      exhaust.position.set(0.42, 1.72, 0.75);
+      exhaust.castShadow = true;
+      dozer.add(exhaust);
+
+      const rainCap = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.02, 0.14), materials.steel);
+      rainCap.position.set(0.42, 2.1, 0.75);
+      rainCap.rotation.z = 0.25;
+      dozer.add(rainCap);
+
+      // Air cleaner canister
+      const airIntake = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.35, 8), materials.steel);
+      airIntake.position.set(-0.45, 1.55, 0.65);
+      airIntake.castShadow = true;
+      dozer.add(airIntake);
+
+      // --- Cabin (rear half) ---
+      // Structural pillars
+      const pillarGeo = new THREE.BoxGeometry(0.08, 0.95, 0.08);
+      const pillarPositions = [
+        [-0.64, 1.62, -0.2],
+        [0.64, 1.62, -0.2],
+        [-0.64, 1.62, -1.2],
+        [0.64, 1.62, -1.2]
+      ];
+      pillarPositions.forEach(p => {
+        const pillar = new THREE.Mesh(pillarGeo, materials.dozerYellow);
+        pillar.position.set(...p);
+        pillar.castShadow = true;
+        dozer.add(pillar);
+      });
+
+      // Roof plate with front sun visor overhang
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.12, 1.35), materials.dozerYellow);
+      roof.position.set(0, 2.15, -0.65);
+      roof.castShadow = true;
+      dozer.add(roof);
+
+      // Cabin Tinted Windows
+      // Front window
+      const winFront = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.75), materials.dozerGlass);
+      winFront.position.set(0, 1.65, -0.2);
+      dozer.add(winFront);
+      // Rear window
+      const winRear = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.75), materials.dozerGlass);
+      winRear.rotation.y = Math.PI;
+      winRear.position.set(0, 1.65, -1.2);
+      dozer.add(winRear);
+      // Side windows
+      const winSideL = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.75), materials.dozerGlass);
+      winSideL.rotation.y = -Math.PI / 2;
+      winSideL.position.set(-0.64, 1.65, -0.7);
+      dozer.add(winSideL);
+      const winSideR = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.75), materials.dozerGlass);
+      winSideR.rotation.y = Math.PI / 2;
+      winSideR.position.set(0.64, 1.65, -0.7);
+      dozer.add(winSideR);
+
+      // Cabin interior: Seat & drive sticks
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.5), mat(0x222224, 0.95));
+      seat.position.set(0, 1.15, -0.78);
+      dozer.add(seat);
+      const stickGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.35, 4);
+      for (let sx of [-0.15, 0.15]) {
+        const stick = new THREE.Mesh(stickGeo, materials.steel);
+        stick.position.set(sx, 1.25, -0.42);
+        stick.rotation.x = -0.2;
+        dozer.add(stick);
+      }
+
+      // --- Left & Right Track Assemblies ---
+      function createTrackAssembly(xPos) {
+        const trackGroup = new THREE.Group();
+        trackGroup.position.set(xPos, 0.42, 0);
+
+        // Track frame beam
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.45, 2.7), materials.steel);
+        frame.castShadow = true;
+        trackGroup.add(frame);
+
+        // Rear drive sprocket (larger wheel)
+        const sprocket = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.42, 10), materials.dozerTracks);
+        sprocket.rotation.z = Math.PI / 2;
+        sprocket.position.set(0, 0.08, -1.18);
+        sprocket.castShadow = true;
+        trackGroup.add(sprocket);
+
+        // Front idler wheel
+        const idler = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.42, 10), materials.dozerTracks);
+        idler.rotation.z = Math.PI / 2;
+        idler.position.set(0, 0.04, 1.18);
+        idler.castShadow = true;
+        trackGroup.add(idler);
+
+        // 4 Bottom road rollers
+        for (let z of [-0.65, -0.22, 0.22, 0.65]) {
+          const roller = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.4, 8), materials.dozerTracks);
+          roller.rotation.z = Math.PI / 2;
+          roller.position.set(0, -0.16, z);
+          roller.castShadow = true;
+          trackGroup.add(roller);
+        }
+
+        // 1 Top return carrier roller
+        const returnRoller = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.4, 8), materials.dozerTracks);
+        returnRoller.rotation.z = Math.PI / 2;
+        returnRoller.position.set(0, 0.3, 0);
+        trackGroup.add(returnRoller);
+
+        // Continuous track loop tread plates
+        // Bottom flat run (ground contact)
+        const plateGeo = new THREE.BoxGeometry(0.48, 0.04, 0.16);
+        for (let z = -1.1; z <= 1.1; z += 0.18) {
+          const plate = new THREE.Mesh(plateGeo, materials.dozerTracks);
+          plate.position.set(0, -0.36, z);
+          plate.castShadow = true;
+          trackGroup.add(plate);
+        }
+        // Top flat run
+        for (let z = -1.0; z <= 1.0; z += 0.22) {
+          const plate = new THREE.Mesh(plateGeo, materials.dozerTracks);
+          plate.position.set(0, 0.44, z);
+          plate.castShadow = true;
+          trackGroup.add(plate);
+        }
+
+        return trackGroup;
+      }
+
+      dozer.add(createTrackAssembly(-1.05));
+      dozer.add(createTrackAssembly(1.05));
+
+      // --- Front Blade & Support Arms ---
+      // Curved blade shield
+      const bladeW = 2.85;
+      const bladeH = 1.15;
+      const bladeGeo = new THREE.BoxGeometry(bladeW, bladeH, 0.16);
+      // Angle the side end-bits of the blade
+      const bPos = bladeGeo.attributes.position;
+      for (let i = 0; i < bPos.count; i++) {
+        const x = bPos.getX(i);
+        if (Math.abs(x) > bladeW * 0.38) {
+          bPos.setZ(i, bPos.getZ(i) - 0.14);
+        }
+      }
+      bladeGeo.computeVertexNormals();
+
+      const blade = new THREE.Mesh(bladeGeo, materials.dozerYellow);
+      blade.position.set(0, 0.52, 2.35);
+      blade.rotation.x = -0.15; // slightly cupped
+      blade.castShadow = true;
+      blade.receiveShadow = true;
+      dozer.add(blade);
+
+      // Scraper cutting edge (bottom strip)
+      const cuttingEdge = new THREE.Mesh(new THREE.BoxGeometry(bladeW * 1.02, 0.15, 0.18), materials.steel);
+      cuttingEdge.position.set(0, 0.08, 2.42);
+      cuttingEdge.castShadow = true;
+      dozer.add(cuttingEdge);
+
+      // Two mechanical C-frame push arms connecting track frames to blade
+      for (let sx of [-1.15, 1.15]) {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 1.8), materials.dozerYellow);
+        arm.position.set(sx, 0.38, 1.45);
+        arm.rotation.x = 0.08;
+        arm.castShadow = true;
+        dozer.add(arm);
+      }
+
+      // Two hydraulic lift cylinders connecting engine cowl to upper blade
+      for (let sx of [-0.62, 0.62]) {
+        // Barrel
+        const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.85, 6), materials.dozerDark);
+        cyl.position.set(sx, 0.85, 1.45);
+        cyl.rotation.x = 0.82;
+        cyl.castShadow = true;
+        dozer.add(cyl);
+
+        // Chrome piston rod
+        const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.65, 6), materials.steel);
+        rod.position.set(sx, 0.65, 1.8);
+        rod.rotation.x = 0.82;
+        dozer.add(rod);
+      }
+
+      return dozer;
+    }
+
+    // -------------------------------------------------------------
+    // 11. DAMAGED PERIMETER FENCE & CROOKED SIGN
+    // -------------------------------------------------------------
+    function createPerimeterFence() {
+      const fence = new THREE.Group();
+      const postCoords = [
+        new THREE.Vector2(-6.8, -7.5),
+        new THREE.Vector2(-4.2, -7.8),
+        new THREE.Vector2(-1.4, -7.7),
+        new THREE.Vector2(1.6, -7.9),
+        new THREE.Vector2(4.4, -7.6),
+        new THREE.Vector2(6.8, -7.4)
+      ];
+
+      // Concrete post footings & uneven steel posts
+      const postMeshes = [];
+      postCoords.forEach((pt, idx) => {
+        const y = getTerrainHeight(pt.x, pt.y);
+        const postH = randRange(1.8, 2.2);
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, postH, 6), materials.galvanized);
+        post.position.set(pt.x, y + postH * 0.48, pt.y);
+
+        // Tilts
+        if (idx === 1) post.rotation.z = -0.18; // leaning post
+        if (idx === 3) post.rotation.x = 0.22;  // pushed post
+        post.castShadow = true;
+        fence.add(post);
+        postMeshes.push(post);
+
+        // Small concrete footing collar
+        const footing = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.18, 6), materials.rock);
+        footing.position.set(pt.x, y + 0.06, pt.y);
+        footing.castShadow = true;
+        fence.add(footing);
+      });
+
+      // Wire mesh fence panels between posts
+      for (let i = 0; i < postCoords.length - 1; i++) {
+        // Skip panel 3 to leave a damaged gap / missing section
+        if (i === 3) continue;
+
+        const p1 = postCoords[i];
+        const p2 = postCoords[i + 1];
+        const spanVec = new THREE.Vector2().subVectors(p2, p1);
+        const spanLen = spanVec.length();
+        const midX = (p1.x + p2.x) * 0.5;
+        const midZ = (p1.y + p2.y) * 0.5;
+        const midY = (getTerrainHeight(p1.x, p1.y) + getTerrainHeight(p2.x, p2.y)) * 0.5 + 0.85;
+        const angle = Math.atan2(spanVec.y, spanVec.x);
+
+        const panelGroup = new THREE.Group();
+        panelGroup.position.set(midX, midY, midZ);
+        panelGroup.rotation.y = -angle;
+
+        // Top and bottom rail wires
+        for (let ry of [-0.65, 0.65]) {
+          const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, spanLen, 4), materials.galvanized);
+          wire.rotation.z = Math.PI / 2;
+          wire.position.y = ry;
+          panelGroup.add(wire);
+        }
+
+        // Geometric wire mesh grid struts
+        const numWires = 7;
+        for (let w = 0; w < numWires; w++) {
+          const wx = -spanLen * 0.5 + (spanLen / (numWires - 1)) * w;
+          const vWire = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 1.35, 4), materials.galvanized);
+          vWire.position.x = wx;
+          panelGroup.add(vWire);
+        }
+
+        // Section 2 is bent curling outward
+        if (i === 2) {
+          panelGroup.rotation.x = 0.42;
+          panelGroup.position.z += 0.25;
+        }
+
+        fence.add(panelGroup);
+      }
+
+      // Crooked, blank rusted steel sign panel
+      const signGroup = new THREE.Group();
+      const signX = -5.6;
+      const signZ = -6.8;
+      const signY = getTerrainHeight(signX, signZ);
+      signGroup.position.set(signX, signY, signZ);
+
+      // Two angle-iron posts
+      for (let sx of [-0.45, 0.45]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.7, 0.06), materials.rust);
+        post.position.set(sx, 0.85, 0);
+        post.castShadow = true;
+        signGroup.add(post);
+      }
+      // Blank rusted sheet panel hanging tilted (lost top-right bolt)
+      const signBoard = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.04), materials.rust);
+      signBoard.position.set(0, 1.25, 0.04);
+      signBoard.rotation.z = -0.22; // crooked tilt
+      signBoard.castShadow = true;
+      signGroup.add(signBoard);
+
+      fence.add(signGroup);
+      return fence;
+    }
+
+    // -------------------------------------------------------------
+    // 12. STORYTELLING DETAILS (Boot, Bucket, Milk Crate, Bent Pipe)
+    // -------------------------------------------------------------
+    function createStorytellingDetails() {
+      const details = new THREE.Group();
+
+      // 1. Single Worn Boot beside a tire in the foreground
+      const boot = new THREE.Group();
+      const sole = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.42), materials.tire);
+      sole.castShadow = true;
+      boot.add(sole);
+      const heel = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.06, 0.14), materials.tire);
+      heel.position.set(0, 0.05, -0.12);
+      boot.add(heel);
+      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.25), mat(0x35281e, 0.95));
+      upper.position.set(0, 0.09, 0.06);
+      upper.castShadow = true;
+      boot.add(upper);
+      const ankle = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.22, 0.16), mat(0x35281e, 0.95));
+      ankle.position.set(0, 0.22, -0.06);
+      ankle.rotation.x = -0.15;
+      ankle.castShadow = true;
+      boot.add(ankle);
+
+      const bootX = -4.6;
+      const bootZ = 6.4;
+      boot.position.set(bootX, getTerrainHeight(bootX, bootZ) + 0.04, bootZ);
+      boot.rotation.y = 0.65;
+      details.add(boot);
+
+      // 2. Plastic Bucket near puddle entrance
+      const bucket = new THREE.Group();
+      const bMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.18, 0.38, 8, 1, true), materials.plasticOrange);
+      bMesh.castShadow = true;
+      bucket.add(bMesh);
+      const bBottom = new THREE.Mesh(new THREE.CircleGeometry(0.18, 8), materials.plasticOrange);
+      bBottom.rotation.x = Math.PI / 2;
+      bBottom.position.y = -0.19;
+      bucket.add(bBottom);
+      // Bucket wire bail handle resting on its side
+      const handle = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.012, 4, 10, Math.PI), materials.steel);
+      handle.position.y = 0.18;
+      handle.rotation.x = 0.95;
+      bucket.add(handle);
+
+      const buckX = -2.4;
+      const buckZ = 5.2;
+      bucket.position.set(buckX, getTerrainHeight(buckX, buckZ) + 0.19, buckZ);
+      bucket.rotation.set(0.12, 0.45, 0.1);
+      details.add(bucket);
+
+      // 3. Plastic Milk / Storage Crate
+      const crate = new THREE.Group();
+      const cw = 0.55, ch = 0.42, cd = 0.55;
+      const crateMesh = new THREE.Mesh(new THREE.BoxGeometry(cw, ch, cd), materials.plasticBlue);
+      crateMesh.castShadow = true;
+      crate.add(crateMesh);
+      // Hollow inside opening
+      const crateInside = new THREE.Mesh(new THREE.BoxGeometry(cw * 0.85, ch * 0.9, cd * 0.85), mat(0x1a3348, 0.95));
+      crateInside.position.y = 0.05;
+      crate.add(crateInside);
+
+      const crateX = 1.2;
+      const crateZ = 4.4;
+      crate.position.set(crateX, getTerrainHeight(crateX, crateZ) + 0.21, crateZ);
+      crate.rotation.set(-0.08, 0.62, 0.15);
+      details.add(crate);
+
+      // 4. Bent Industrial Pipe emerging from mound
+      const pipeGroup = new THREE.Group();
+      const pipe1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.4, 7), materials.rust);
+      pipe1.castShadow = true;
+      pipeGroup.add(pipe1);
+      const pipeElbow = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.08, 6, 8, Math.PI / 2), materials.rust);
+      pipeElbow.position.set(0.18, 0.7, 0);
+      pipeGroup.add(pipeElbow);
+      const pipe2 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.75, 7), materials.rust);
+      pipe2.rotation.z = -Math.PI / 2;
+      pipe2.position.set(0.55, 0.88, 0);
+      pipe2.castShadow = true;
+      pipeGroup.add(pipe2);
+
+      const pX = 4.3;
+      const pZ = 0.4;
+      pipeGroup.position.set(pX, getTerrainHeight(pX, pZ) + 0.5, pZ);
+      pipeGroup.rotation.set(0.35, 1.1, -0.45);
+      details.add(pipeGroup);
+
+      return details;
+    }
+
+    // -------------------------------------------------------------
+    // 13. DRY VEGETATION & ANIMATED WIND PAPER
+    // -------------------------------------------------------------
+    const grassTufts = [];
+    function createVegetation() {
+      const vegGroup = new THREE.Group();
+      const bladeGeo = new THREE.ConeGeometry(0.04, 0.45, 3);
+      bladeGeo.translate(0, 0.22, 0);
+
+      const tuftCoords = [];
+      // Tufts around perimeter and near fence
+      for (let i = 0; i < 34; i++) {
+        const angle = (i / 34) * Math.PI * 2;
+        const rFrac = randRange(0.78, 0.94);
+        const cosP = Math.sign(Math.cos(angle)) * Math.pow(Math.abs(Math.cos(angle)), 2 / 3.2);
+        const sinP = Math.sign(Math.sin(angle)) * Math.pow(Math.abs(Math.sin(angle)), 2 / 3.2);
+        const tx = BASE_W * cosP * rFrac;
+        const tz = BASE_D * sinP * rFrac;
+        tuftCoords.push({ x: tx, z: tz });
+      }
+      // Tufts around puddle & fence posts
+      tuftCoords.push({ x: -4.2, z: 4.2 }, { x: -6.8, z: 4.2 }, { x: -4.5, z: -7.6 }, { x: 1.4, z: -7.7 });
+
+      tuftCoords.forEach((pt, idx) => {
+        const tuft = new THREE.Group();
+        const y = getTerrainHeight(pt.x, pt.z);
+        tuft.position.set(pt.x, y, pt.z);
+
+        const numBlades = Math.floor(randRange(3, 6));
+        for (let b = 0; b < numBlades; b++) {
+          const blade = new THREE.Mesh(bladeGeo, materials.grass);
+          const bRotY = (b / numBlades) * Math.PI * 2 + randRange(-0.2, 0.2);
+          blade.rotation.y = bRotY;
+          blade.rotation.z = randRange(0.2, 0.45);
+          blade.scale.set(randRange(0.8, 1.4), randRange(0.7, 1.3), randRange(0.8, 1.4));
+          blade.castShadow = true;
+          tuft.add(blade);
+        }
+        vegGroup.add(tuft);
+        grassTufts.push({ obj: tuft, phase: idx * 0.45 });
+      });
+
+      return vegGroup;
+    }
+
+    // Single piece of tumbling wind-blown waste paper
+    const paperGroup = new THREE.Group();
+    const paperMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.32), materials.paper);
+    paperMesh.castShadow = true;
+    paperGroup.add(paperMesh);
+    scene.add(paperGroup);
+
+    // -------------------------------------------------------------
+    // 14. SCENE COMPOSITION & PLACEMENT OF ALL DIORAMA ASSETS
+    // -------------------------------------------------------------
+    const dioramaScene = new THREE.Group();
+
+    // 1. Bulldozer parked on access path near main mound
+    const bulldozer = createBulldozer();
+    const dozerX = -3.1;
+    const dozerZ = -0.6;
+    bulldozer.position.set(dozerX, getTerrainHeight(dozerX, dozerZ) + 0.02, dozerZ);
+    bulldozer.rotation.y = 0.55; // angled facing path & mound
+    dioramaScene.add(bulldozer);
+
+    // 2. Tipped Dumpster beside main mound spilling trash
+    const dumpster = createDumpster();
+    const dumpX = -0.8;
+    const dumpZ = 2.4;
+    dumpster.position.set(dumpX, getTerrainHeight(dumpX, dumpZ) + 0.32, dumpZ);
+    dumpster.rotation.set(0.12, -0.35, 0.24); // tilted convincingly
+    dioramaScene.add(dumpster);
+
+    // 3. Spilled trash from dumpster
+    const spill1 = createGarbageBag(0.48, materials.trashBlue);
+    spill1.position.set(dumpX - 0.7, getTerrainHeight(dumpX - 0.7, dumpZ + 0.3) + 0.22, dumpZ + 0.3);
+    dioramaScene.add(spill1);
+
+    const spill2 = createCardboardBox(0.65, 0.5, 0.55, true, true);
+    spill2.position.set(dumpX - 1.15, getTerrainHeight(dumpX - 1.15, dumpZ - 0.2) + 0.2, dumpZ - 0.2);
+    spill2.rotation.set(0.2, 0.6, -0.15);
+    dioramaScene.add(spill2);
+
+    // 4. Large props: Refrigerator & Broken Sofa
+    const fridge = createRefrigerator();
+    const frX = 3.8;
+    const frZ = 1.6;
+    fridge.position.set(frX, getTerrainHeight(frX, frZ) + 0.95, frZ);
+    fridge.rotation.set(0.18, 0.45, -0.22); // tilted resting into mound
+    dioramaScene.add(fridge);
+
+    const sofa = createBrokenSofa();
+    const sofX = 3.2;
+    const sofZ = -1.6;
+    sofa.position.set(sofX, getTerrainHeight(sofX, sofZ) + 0.55, sofZ);
+    sofa.rotation.set(-0.15, -0.65, 0.12);
+    dioramaScene.add(sofa);
+
+    // 5. Oil Drums
+    const barrel1 = createBarrel(true);
+    const b1X = 0.6;
+    const b1Z = 2.8;
+    barrel1.position.set(b1X, getTerrainHeight(b1X, b1Z) + 0.52, b1Z);
+    barrel1.rotation.set(0.1, 0.3, -0.12);
+    dioramaScene.add(barrel1);
+
+    const barrel2 = createBarrel(false); // lying on its side
+    const b2X = 4.8;
+    const b2Z = -0.5;
+    barrel2.rotation.z = Math.PI / 2;
+    barrel2.rotation.y = 0.42;
+    barrel2.position.set(b2X, getTerrainHeight(b2X, b2Z) + 0.38, b2Z);
+    dioramaScene.add(barrel2);
+
+    // 6. Tires
+    // Stack of 2 tires near puddle
+    const tire1 = createTire(0.52, 0.18);
+    const t1X = -4.8;
+    const t1Z = 3.2;
+    tire1.position.set(t1X, getTerrainHeight(t1X, t1Z) + 0.18, t1Z);
+    tire1.rotation.set(0.08, 0.2, 0.05);
+    dioramaScene.add(tire1);
+
+    const tire2 = createTire(0.48, 0.17);
+    tire2.position.set(t1X + 0.08, getTerrainHeight(t1X, t1Z) + 0.48, t1Z - 0.05);
+    tire2.rotation.set(-0.06, 0.8, 0.12);
+    dioramaScene.add(tire2);
+
+    // Leaning tire against dumpster
+    const tireLean = createTire(0.5, 0.18);
+    tireLean.position.set(dumpX - 0.6, getTerrainHeight(dumpX - 0.6, dumpZ + 1.1) + 0.32, dumpZ + 1.1);
+    tireLean.rotation.set(0.85, 0.3, -0.4);
+    dioramaScene.add(tireLean);
+
+    // Half-buried tire in dirt
+    const tireBuried = createTire(0.52, 0.18);
+    const tbX = -3.6;
+    const tbZ = 7.1;
+    tireBuried.position.set(tbX, getTerrainHeight(tbX, tbZ) + 0.12, tbZ);
+    tireBuried.rotation.set(1.1, 0.5, 0.2);
+    dioramaScene.add(tireBuried);
+
+    // 7. Scrap metal panels & I-beams
+    const sheet1 = createCorrugatedSheet(1.8, 1.3);
+    const s1X = 2.1;
+    const s1Z = 0.2;
+    sheet1.position.set(s1X, getTerrainHeight(s1X, s1Z) + 0.8, s1Z);
+    sheet1.rotation.set(-0.6, 0.8, 0.4);
+    dioramaScene.add(sheet1);
+
+    const beam1 = createIBeam(2.5, 0.24, 0.24);
+    const bmX = 5.2;
+    const bmZ = 3.6;
+    beam1.position.set(bmX, getTerrainHeight(bmX, bmZ) + 0.4, bmZ);
+    beam1.rotation.set(0.45, 0.9, -0.3);
+    dioramaScene.add(beam1);
+
+    // 8. Clustered Garbage Bags on Main Mound & Supporting Piles
+    const bagColors = [materials.trashCharcoal, materials.trashOlive, materials.trashBlue];
+    const moundBags = [
+      // Main mound peak & flanks
+      { x: 2.2, z: 0.8, r: 0.58 },
+      { x: 1.6, z: 0.4, r: 0.52 },
+      { x: 2.8, z: 0.2, r: 0.62 },
+      { x: 2.4, z: -0.6, r: 0.55 },
+      { x: 3.4, z: 0.6, r: 0.5 },
+      { x: 1.8, z: 1.4, r: 0.48 },
+      { x: 2.9, z: 1.2, r: 0.56 },
+      { x: 3.6, z: -0.8, r: 0.52 },
+      { x: 2.0, z: -1.2, r: 0.46 },
+      { x: 4.2, z: 0.8, r: 0.48 },
+      { x: 1.2, z: 0.9, r: 0.44 },
+      // Secondary rear-left pile
+      { x: -5.1, z: -4.0, r: 0.54 },
+      { x: -4.6, z: -3.6, r: 0.48 },
+      { x: -5.6, z: -4.4, r: 0.5 },
+      { x: -4.2, z: -4.3, r: 0.44 },
+      // Secondary rear-right pile
+      { x: 5.6, z: -4.1, r: 0.55 },
+      { x: 6.2, z: -3.8, r: 0.48 },
+      { x: 5.1, z: -4.5, r: 0.52 },
+      // Foreground entrance scattering
+      { x: -5.1, z: 6.1, r: 0.42 },
+      { x: -3.2, z: 5.8, r: 0.45 }
+    ];
+
+    moundBags.forEach((mb, idx) => {
+      const bagMat = bagColors[idx % bagColors.length];
+      const bag = createGarbageBag(mb.r, bagMat);
+      const by = getTerrainHeight(mb.x, mb.z) + mb.r * 0.72;
+      bag.position.set(mb.x, by, mb.z);
+      bag.rotation.set(randRange(-0.15, 0.15), randRange(0, Math.PI * 2), randRange(-0.15, 0.15));
+      dioramaScene.add(bag);
+    });
+
+    // 9. Cardboard Boxes (scattered on mounds and along path)
+    const boxSpecs = [
+      { x: 1.4, z: -0.4, w: 0.75, h: 0.55, d: 0.65, open: false, crushed: true },
+      { x: 3.2, z: -0.2, w: 0.85, h: 0.6, d: 0.7, open: true, crushed: false },
+      { x: 4.5, z: 1.2, w: 0.7, h: 0.5, d: 0.6, open: false, crushed: false },
+      { x: -4.8, z: -3.2, w: 0.65, h: 0.48, d: 0.55, open: true, crushed: true },
+      { x: 5.8, z: -3.5, w: 0.75, h: 0.55, d: 0.6, open: false, crushed: true },
+      { x: -3.8, z: 4.2, w: 0.6, h: 0.42, d: 0.5, open: false, crushed: true }
+    ];
+    boxSpecs.forEach(bs => {
+      const box = createCardboardBox(bs.w, bs.h, bs.d, bs.open, bs.crushed);
+      const by = getTerrainHeight(bs.x, bs.z) + bs.h * 0.48;
+      box.position.set(bs.x, by, bs.z);
+      box.rotation.set(randRange(-0.15, 0.15), randRange(0, Math.PI * 2), randRange(-0.15, 0.15));
+      dioramaScene.add(box);
+    });
+
+    // 10. Bottles & Metal Cans (scattered in foreground, near puddle and piles)
+    const bottleMats = [materials.bottleGreen, materials.bottleBrown, materials.bottleBlue];
+    const bottleCoords = [
+      { x: -6.4, z: 4.5, onSide: true },
+      { x: -5.9, z: 4.2, onSide: false }, // half in puddle
+      { x: -4.9, z: 5.4, onSide: true },
+      { x: -4.2, z: 6.8, onSide: false },
+      { x: -3.2, z: 3.4, onSide: true },
+      { x: -1.2, z: 3.8, onSide: true },
+      { x: 0.8, z: 3.5, onSide: false },
+      { x: 2.6, z: 2.1, onSide: true },
+      { x: 4.1, z: 2.4, onSide: false },
+      { x: -5.4, z: -3.4, onSide: true },
+      { x: 5.2, z: -3.6, onSide: false }
+    ];
+    bottleCoords.forEach((bc, idx) => {
+      const bottle = createBottle(bottleMats[idx % bottleMats.length]);
+      const by = getTerrainHeight(bc.x, bc.z);
+      if (bc.onSide) {
+        bottle.rotation.z = Math.PI / 2;
+        bottle.rotation.y = randRange(0, Math.PI * 2);
+        bottle.position.set(bc.x, by + 0.06, bc.z);
+      } else {
+        bottle.position.set(bc.x, by + 0.14, bc.z);
+        bottle.rotation.set(randRange(-0.1, 0.1), randRange(0, 3), randRange(-0.1, 0.1));
+      }
+      dioramaScene.add(bottle);
+    });
+
+    const canMats = [materials.tin, materials.canRed, materials.canBlue];
+    const canCoords = [
+      { x: -6.1, z: 5.2, crushed: true },
+      { x: -5.2, z: 4.4, crushed: false },
+      { x: -4.4, z: 5.9, crushed: true },
+      { x: -2.8, z: 4.8, crushed: false },
+      { x: -1.8, z: 2.8, crushed: true },
+      { x: 0.2, z: 3.4, crushed: false },
+      { x: 1.9, z: 2.6, crushed: true },
+      { x: 3.4, z: 1.9, crushed: false },
+      { x: 4.4, z: -0.2, crushed: true }
+    ];
+    canCoords.forEach((cc, idx) => {
+      const can = createCan(canMats[idx % canMats.length], cc.crushed);
+      const cy = getTerrainHeight(cc.x, cc.z);
+      if (idx % 2 === 0) {
+        can.rotation.z = Math.PI / 2;
+        can.rotation.y = randRange(0, Math.PI * 2);
+        can.position.set(cc.x, cy + 0.07, cc.z);
+      } else {
+        can.position.set(cc.x, cy + 0.1, cc.z);
+        can.rotation.set(randRange(-0.1, 0.1), randRange(0, 3), randRange(-0.1, 0.1));
+      }
+      dioramaScene.add(can);
+    });
+
+    // 11. Add Perimeter Fence, Vegetation, and Storytelling Details
+    dioramaScene.add(createPerimeterFence());
+    dioramaScene.add(createVegetation());
+    dioramaScene.add(createStorytellingDetails());
+
+    scene.add(dioramaScene);
+
+    // -------------------------------------------------------------
+    // 15. ANIMATION LOOP & RESTRAINED AMBIENT MOTION
+    // -------------------------------------------------------------
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const elapsedTime = clock.getElapsedTime();
+      const delta = clock.getDelta();
+
+      // 1. Dry grass tufts gently swaying in breeze
+      grassTufts.forEach(item => {
+        const sway = Math.sin(elapsedTime * 1.8 + item.phase) * 0.05;
+        item.obj.rotation.z = sway;
+      });
+
+      // 2. Loose piece of paper lifting, tumbling, and gently settling near ground
+      const paperCycle = (elapsedTime * 0.45) % (Math.PI * 2);
+      const paperHover = Math.sin(paperCycle);
+      const pBaseX = -3.4 + Math.sin(paperCycle * 0.8) * 0.35;
+      const pBaseZ = 3.6 + Math.cos(paperCycle * 0.7) * 0.35;
+      const pBaseY = getTerrainHeight(pBaseX, pBaseZ) + 0.08 + Math.max(0, paperHover) * 0.35;
+      paperGroup.position.set(pBaseX, pBaseY, pBaseZ);
+      paperGroup.rotation.set(
+        Math.sin(elapsedTime * 1.2) * 0.35,
+        elapsedTime * 0.6,
+        Math.cos(elapsedTime * 1.4) * 0.25
+      );
+
+      // 3. Subtle expanding ripples in the shallow puddle
+      const rippleTime = (elapsedTime * 0.6) % 3.0; // 3-second ripple cycle
+      if (rippleTime < 2.0) {
+        const rFrac = rippleTime / 2.0;
+        const currentScale = 1.0 + rFrac * 2.8;
+        rippleMesh.scale.set(currentScale, currentScale * 0.76, 1.0);
+        rippleMat.opacity = Math.sin(rFrac * Math.PI) * 0.42;
+      } else {
+        rippleMat.opacity = 0.0;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // -------------------------------------------------------------
+    // 16. RESPONSIVE RESIZE HANDLING
+    // -------------------------------------------------------------
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    });
+
+    animate();
+  </script>
+</body>
+</html>

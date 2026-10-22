@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Homeless Man — Low Poly Diorama</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #454850; }
+  canvas { display: block; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============================================================
+   RENDERER / SCENE / CAMERA
+============================================================ */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x474b53);
+scene.fog = new THREE.Fog(0x474b53, 7, 14);
+
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 60);
+camera.position.set(2.15, 1.62, 3.1);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.02, 0.1);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 1.1;
+controls.maxDistance = 6.0;
+controls.minPolarAngle = 0.15;
+controls.maxPolarAngle = Math.PI / 2 - 0.04; // never below the pavement
+
+/* ============================================================
+   LIGHTING — warm late afternoon
+============================================================ */
+const hemi = new THREE.HemisphereLight(0xcfd6e0, 0x4a4038, 0.55);
+scene.add(hemi);
+
+const ambient = new THREE.AmbientLight(0x8a7f74, 0.45);
+scene.add(ambient);
+
+const sun = new THREE.DirectionalLight(0xffd9a3, 2.4);
+sun.position.set(3.2, 4.2, 2.6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -2.5;
+sun.shadow.camera.right = 2.5;
+sun.shadow.camera.top = 3.0;
+sun.shadow.camera.bottom = -1.0;
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 12;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.02;
+scene.add(sun);
+
+const fill = new THREE.DirectionalLight(0xaebdd4, 0.35);
+fill.position.set(-2.5, 2.0, -1.5);
+scene.add(fill);
+
+/* ============================================================
+   MATERIALS — muted palette, flat shading
+============================================================ */
+function M(color, opts = {}) {
+  return new THREE.MeshStandardMaterial(Object.assign({
+    color, flatShading: true, roughness: 0.92, metalness: 0.0
+  }, opts));
+}
+const MAT = {
+  skin:        M(0xc98d66),
+  skinDark:    M(0xb37a58),
+  beard:       M(0x6e6156),
+  beardLight:  M(0x8a7c6d),
+  hair:        M(0x3e3129),
+  hairGray:    M(0x9a938a),
+  beanie:      M(0x7c3b44),
+  beanieDark:  M(0x6a3039),
+  eyeWhite:    M(0xe8e2d8),
+  pupil:       M(0x2a2019),
+  lid:         M(0xb98a67),
+  bag:         M(0x8a8272),
+  jacket:      M(0x8a6a4d),
+  jacketDark:  M(0x77593f),
+  patchLeather:M(0x5c4632),
+  sweater:     M(0xb08c3e),
+  scarf:       M(0x7c8894),
+  trouser:     M(0x3a3d42),
+  trouserDark: M(0x303338),
+  boot:        M(0x4a3524),
+  bootDark:    M(0x3a2a1c),
+  bootScuff:   M(0x6b5238),
+  sole:        M(0x2c2620),
+  glove:       M(0x4a5a42),
+  cup:         M(0xe4d9be),
+  cupBand:     M(0x9c4038),
+  coin:        M(0xc9a44a, { roughness: 0.35, metalness: 0.85 }),
+  bagOlive:    M(0x6f7048),
+  bagOliveDark:M(0x5c5d3a),
+  bagPatch:    M(0x84714d),
+  blanket:     M(0x76838e),
+  blanketDark: M(0x647079),
+  mug:         M(0x9aa2a8, { roughness: 0.4, metalness: 0.8 }),
+  buckle:      M(0x8f949a, { roughness: 0.4, metalness: 0.8 }),
+  pavement:    M(0x8d8d88),
+  pavementTop: M(0x9a9a92),
+  pavementBase:M(0x5c5a54),
+  curb:        M(0xa0a099),
+  asphalt:     M(0x40434a, { roughness: 0.95 }),
+  seam:        M(0x55544e),
+  cardboard:   M(0xa8835a),
+  cardboardDk: M(0x93714c),
+  can:         M(0x8e4444, { roughness: 0.45, metalness: 0.6 }),
+  weed:        M(0x5d6b3d),
+  puddle:      M(0x6d7880, { roughness: 0.12, metalness: 0.55 }),
+};
+
+/* ============================================================
+   GEOMETRY HELPERS
+============================================================ */
+function box(parent, w, h, d, mat, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+function cyl(parent, rt, rb, h, seg, mat, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+function torus(parent, r, tube, seg, mat, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new THREE.TorusGeometry(r, tube, 6, seg), mat);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+// taper a box geometry: applies f(x,y,z) -> {x,z} scale per vertex
+function taper(geo, f) {
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const s = f(x, y, z);
+    p.setX(i, x * s.x);
+    p.setZ(i, z * s.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+// box oriented between two points (strap segments etc.)
+function segment(parent, a, b, w, t, mat) {
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = dir.length();
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, len, t), mat);
+  m.position.copy(a).add(b).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+/* ============================================================
+   DIORAMA — sidewalk
+============================================================ */
+function buildDiorama() {
+  const g = new THREE.Group();
+
+  // pavement base with visible thickness / edge
+  const base = box(g, 2.6, 0.16, 1.7, MAT.pavementBase, 0, -0.08, -0.05);
+  base.receiveShadow = true;
+
+  // large paving slabs with seams (gaps reveal darker base)
+  const slabW = 1.26, slabD = 0.81, gap = 0.022, top = 0.012;
+  for (let ix = 0; ix < 2; ix++) {
+    for (let iz = 0; iz < 2; iz++) {
+      const sx = -0.645 + ix * (slabW + gap);
+      const sz = -0.45 + iz * (slabD + gap);
+      const s = box(g, slabW, top + 0.02, slabD, MAT.pavementTop, sx, top - 0.01, sz);
+      s.receiveShadow = true;
+    }
+  }
+  // shallow seam lines + restrained cracks
+  const seam1 = box(g, 2.56, 0.004, 0.03, MAT.seam, 0, 0.012, -0.04);
+  seam1.receiveShadow = true;
+  box(g, 0.03, 0.004, 1.64, MAT.seam, 0.0, 0.012, -0.05);
+  const crack1 = box(g, 0.34, 0.004, 0.02, MAT.seam, -0.75, 0.013, -0.62);
+  crack1.rotation.y = 0.5;
+  const crack2 = box(g, 0.22, 0.004, 0.018, MAT.seam, 0.85, 0.013, 0.35);
+  crack2.rotation.y = -0.9;
+
+  // curb along front edge (+Z), slightly raised
+  const curb = box(g, 2.6, 0.11, 0.14, MAT.curb, 0, 0.035, 0.86);
+  curb.receiveShadow = true;
+
+  // asphalt strip beyond the curb
+  const road = box(g, 2.6, 0.08, 0.75, MAT.asphalt, 0, -0.075, 1.3);
+  road.receiveShadow = true;
+
+  // shallow puddle near the curb
+  const puddle = new THREE.Mesh(new THREE.CircleGeometry(0.26, 14), MAT.puddle);
+  puddle.rotation.x = -Math.PI / 2;
+  puddle.position.set(-0.55, -0.028, 1.22);
+  puddle.scale.set(1.35, 0.75, 1);
+  puddle.receiveShadow = true;
+  g.add(puddle);
+
+  // flattened cardboard near the feet — two segments for a bent corner
+  const card = new THREE.Group();
+  card.position.set(0.62, 0.0, -0.5);
+  card.rotation.y = -0.35;
+  g.add(card);
+  const c1 = box(card, 0.52, 0.018, 0.44, MAT.cardboard, 0, 0.009, 0);
+  c1.receiveShadow = true;
+  const c2 = box(card, 0.52, 0.018, 0.16, MAT.cardboardDk, 0.02, 0.028, -0.28);
+  c2.rotation.x = 0.18;
+  c2.receiveShadow = true;
+
+  // small folded blanket on the cardboard
+  const fb = box(card, 0.3, 0.075, 0.22, MAT.blanket, -0.05, 0.055, 0.04);
+  fb.rotation.y = 0.12;
+  box(card, 0.3, 0.02, 0.22, MAT.blanketDark, -0.05, 0.1, 0.04).rotation.y = 0.12;
+
+  // tied fabric bundle
+  const bundle = new THREE.Mesh(new THREE.SphereGeometry(0.11, 7, 5), MAT.scarf);
+  bundle.position.set(0.18, 0.12, -0.06);
+  bundle.scale.set(1.15, 0.75, 0.9);
+  bundle.castShadow = true;
+  card.add(bundle);
+  torus(card, 0.055, 0.014, 8, MAT.blanketDark, 0.18, 0.12, -0.06).rotation.x = Math.PI / 2;
+
+  // discarded drink can
+  const can = cyl(g, 0.033, 0.033, 0.11, 10, MAT.can, -1.0, 0.0, 0.55);
+  can.rotation.z = Math.PI / 2;
+  can.rotation.y = 0.4;
+  cyl(g, 0.033, 0.033, 0.004, 10, MAT.buckle, -1.053, 0.0, 0.55).rotation.z = Math.PI / 2;
+
+  // weeds in a pavement seam
+  const weeds = [[-0.4, -0.04], [-0.36, -0.03], [-0.44, -0.05], [0.02, -0.045]];
+  for (const [wx, wz] of weeds) {
+    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.014, 0.11, 4), MAT.weed);
+    blade.position.set(wx, 0.055, wz);
+    blade.rotation.z = (Math.random() - 0.5) * 0.4;
+    blade.castShadow = true;
+    g.add(blade);
+  }
+
+  scene.add(g);
+}
+buildDiorama();
+
+/* ============================================================
+   CHARACTER
+============================================================ */
+const charRoot = new THREE.Group();
+scene.add(charRoot);
+
+const rig = {}; // animation references
+
+/* ---------- hips / legs (static, feet planted) ---------- */
+box(charRoot, 0.36, 0.2, 0.24, MAT.trouserDark, 0, 0.93, 0); // hips
+box(charRoot, 0.38, 0.1, 0.26, MAT.trouser, 0, 1.0, 0);      // belt line
+
+function buildLeg(side) { // side: -1 left(rear), +1 right(front)
+  const leg = new THREE.Group();
+  charRoot.add(leg);
+  if (side < 0) {
+    // rear leg — takes the weight, straighter
+    const th = box(leg, 0.17, 0.42, 0.19, MAT.trouser, -0.15, 0.72, -0.02);
+    th.rotation.x = 0.05;
+    const knee = box(leg, 0.155, 0.14, 0.17, MAT.trouser, -0.155, 0.5, -0.005);
+    const shin = box(leg, 0.14, 0.38, 0.155, MAT.trouser, -0.16, 0.3, 0.0);
+    shin.rotation.x = 0.02;
+    // cuff
+    box(leg, 0.155, 0.09, 0.17, MAT.trouserDark, -0.16, 0.13, 0.0);
+    // tear on this knee (skin visible)
+    box(leg, 0.06, 0.05, 0.02, MAT.skinDark, -0.155, 0.5, 0.082);
+    // boot
+    const boot = buildBoot(leg, -0.16, 0, 0.0, 0.08, true);
+  } else {
+    // front leg — slightly forward, turned outward, knee bent
+    const th = box(leg, 0.17, 0.42, 0.19, MAT.trouser, 0.15, 0.71, 0.05);
+    th.rotation.x = -0.16;
+    const knee = box(leg, 0.155, 0.14, 0.17, MAT.trouser, 0.16, 0.5, 0.1);
+    // cloth patch on this knee
+    box(leg, 0.075, 0.075, 0.02, MAT.trouserDark, 0.16, 0.5, 0.19);
+    const shin = box(leg, 0.14, 0.36, 0.155, MAT.trouser, 0.165, 0.3, 0.115);
+    shin.rotation.x = -0.02;
+    box(leg, 0.155, 0.09, 0.17, MAT.trouserDark, 0.165, 0.14, 0.125);
+    const boot = buildBoot(leg, 0.17, 0, 0.13, -0.38, false);
+  }
+  return leg;
+}
+
+function buildBoot(parent, x, y, z, rotY, moreWorn) {
+  const b = new THREE.Group();
+  b.position.set(x, y, z);
+  b.rotation.y = rotY;
+  parent.add(b);
+  const sole = box(b, 0.16, 0.055, 0.29, MAT.sole, 0, 0.028, 0.02);
+  sole.receiveShadow = true;
+  box(b, 0.145, 0.12, 0.26, MAT.boot, 0, 0.115, 0.01);
+  box(b, 0.135, 0.09, 0.1, MAT.boot, 0, 0.21, -0.05);         // ankle
+  box(b, 0.12, 0.05, 0.08, moreWorn ? MAT.bootScuff : MAT.boot, 0, 0.24, -0.06); // tongue
+  box(b, 0.13, 0.05, 0.06, MAT.bootDark, 0, 0.125, 0.16);     // toe cap
+  // scuffed areas — the more worn boot gets more of them
+  box(b, 0.05, 0.04, 0.05, MAT.bootScuff, 0.06, 0.17, 0.12);
+  if (moreWorn) box(b, 0.05, 0.05, 0.05, MAT.bootScuff, -0.06, 0.19, -0.02);
+  // simplified laces
+  for (let i = 0; i < 3; i++) {
+    box(b, 0.09, 0.012, 0.02, MAT.sole, 0, 0.2 - i * 0.035, -0.02 + i * 0.03);
+  }
+  return b;
+}
+buildLeg(-1);
+buildLeg(1);
+
+/* ---------- torso group (pivot at hips, slight slouch) ---------- */
+const torso = new THREE.Group();
+torso.position.set(0, 1.02, 0);
+torso.rotation.x = 0.075;
+charRoot.add(torso);
+rig.torso = torso;
+
+// chest — custom tapered box, wider at shoulders
+const chestGeo = new THREE.BoxGeometry(0.42, 0.52, 0.28);
+taper(chestGeo, (x, y) => {
+  const s = y > 0 ? 1.08 : 0.86;             // broader chest, narrower waist
+  return { x: s, z: y > 0 ? 1.0 : 0.92 };
+});
+const chest = new THREE.Mesh(chestGeo, MAT.jacket);
+chest.position.set(0, 0.27, 0);
+chest.castShadow = chest.receiveShadow = true;
+torso.add(chest);
+rig.chest = chest;
+
+// mustard sweater visible between open jacket panels
+box(torso, 0.24, 0.5, 0.3, MAT.sweater, 0, 0.26, 0.005);
+box(torso, 0.26, 0.1, 0.31, MAT.sweater, 0, 0.5, 0.005); // sweater collar
+
+/* jacket — front panels, back, collar, pockets, buttons, patches */
+const panelL = box(torso, 0.15, 0.56, 0.075, MAT.jacket, -0.185, 0.26, 0.155);
+panelL.rotation.y = 0.07;
+panelL.rotation.x = -0.02;
+const panelR = box(torso, 0.15, 0.58, 0.075, MAT.jacket, 0.185, 0.27, 0.155);
+panelR.rotation.y = -0.06;
+panelR.rotation.x = -0.02;
+box(torso, 0.44, 0.54, 0.07, MAT.jacketDark, 0, 0.27, -0.15); // back panel
+// uneven hem
+box(torso, 0.15, 0.06, 0.08, MAT.jacketDark, -0.19, -0.025, 0.15).rotation.x = 0.1;
+box(torso, 0.15, 0.06, 0.08, MAT.jacketDark, 0.2, -0.035, 0.15).rotation.x = -0.08;
+// collar
+const colL = box(torso, 0.11, 0.09, 0.05, MAT.jacketDark, -0.1, 0.55, 0.15);
+colL.rotation.z = 0.35; colL.rotation.x = -0.25;
+const colR = box(torso, 0.11, 0.09, 0.05, MAT.jacketDark, 0.1, 0.55, 0.15);
+colR.rotation.z = -0.35; colR.rotation.x = -0.25;
+// broad angular folds on panels
+box(torso, 0.16, 0.06, 0.085, MAT.jacketDark, -0.185, 0.36, 0.155).rotation.z = 0.06;
+box(torso, 0.16, 0.05, 0.085, MAT.jacketDark, 0.185, 0.18, 0.155).rotation.z = -0.05;
+// large pockets
+const pokL = box(torso, 0.13, 0.14, 0.03, MAT.jacketDark, -0.2, 0.03, 0.195);
+pokL.rotation.y = 0.07;
+const pokR = box(torso, 0.13, 0.14, 0.03, MAT.jacketDark, 0.21, 0.04, 0.195);
+pokR.rotation.y = -0.06;
+// buttons
+for (let i = 0; i < 3; i++) {
+  cyl(torso, 0.016, 0.016, 0.014, 8, MAT.patchLeather, 0.125, 0.42 - i * 0.13, 0.19).rotation.x = Math.PI / 2;
+}
+// worn areas / patches on jacket
+box(torso, 0.06, 0.05, 0.085, MAT.patchLeather, -0.185, 0.48, 0.155).rotation.z = 0.15;
+box(torso, 0.05, 0.06, 0.08, MAT.patchLeather, 0.21, -0.02, -0.15);
+
+/* scarf around neck + hanging end */
+const scarfRing = torus(torso, 0.135, 0.058, 9, MAT.scarf, 0, 0.53, 0.01);
+scarfRing.rotation.x = Math.PI / 2;
+scarfRing.scale.set(1, 1, 0.8);
+const scarfTail = new THREE.Group();
+scarfTail.position.set(-0.05, 0.51, 0.17);
+torso.add(scarfTail);
+rig.scarfTail = scarfTail;
+box(scarfTail, 0.075, 0.32, 0.036, MAT.scarf, 0, -0.16, 0.01).rotation.z = 0.06;
+box(scarfTail, 0.08, 0.045, 0.042, MAT.blanketDark, 0, -0.31, 0.012).rotation.z = 0.06;
+
+/* neck + head */
+cyl(torso, 0.075, 0.085, 0.1, 8, MAT.skinDark, 0, 0.585, 0.01);
+
+const headGrp = new THREE.Group();
+headGrp.position.set(0, 0.6, 0.02);
+headGrp.rotation.set(0.06, 0.22, -0.06); // tilted, turned toward the cup hand
+torso.add(headGrp);
+rig.head = headGrp;
+
+// skull — tapered angular head
+const skullGeo = new THREE.BoxGeometry(0.245, 0.29, 0.26);
+taper(skullGeo, (x, y) => {
+  let sx = 1, sz = 1;
+  if (y < -0.02) { sx = 0.84; sz = 0.88; }        // narrower jaw
+  if (y > 0.1) { sx = 1.04; }                      // broad crown
+  return { x: sx, z: sz };
+});
+const skull = new THREE.Mesh(skullGeo, MAT.skin);
+skull.position.set(0, 0.13, 0);
+skull.castShadow = skull.receiveShadow = true;
+headGrp.add(skull);
+
+// jaw + cheekbones
+box(headGrp, 0.18, 0.09, 0.2, MAT.skin, 0, 0.015, 0.02);
+box(headGrp, 0.055, 0.045, 0.05, MAT.skin, -0.095, 0.12, 0.1);  // cheekbones
+box(headGrp, 0.055, 0.045, 0.05, MAT.skin, 0.095, 0.12, 0.1);
+
+// nose — noticeable, protruding
+const nose = box(headGrp, 0.055, 0.1, 0.075, MAT.skin, 0, 0.115, 0.155);
+nose.rotation.x = 0.1;
+box(headGrp, 0.06, 0.025, 0.045, MAT.skinDark, 0, 0.07, 0.165); // nostril base
+
+// eyes with lids, pupils and bags
+function buildEye(side) {
+  const e = new THREE.Group();
+  e.position.set(0.055 * side, 0.175, 0.132);
+  headGrp.add(e);
+  box(e, 0.052, 0.03, 0.02, MAT.eyeWhite, 0, 0, 0.005);
+  box(e, 0.02, 0.02, 0.022, MAT.pupil, 0.008 * side, -0.002, 0.012);
+  const lid = box(e, 0.058, 0.016, 0.026, MAT.lid, 0, 0.022, 0.012);
+  lid.rotation.z = -0.12 * side;                    // weary heavy lids
+  box(e, 0.05, 0.012, 0.02, MAT.skinDark, 0, -0.026, 0.012); // bags under eyes
+}
+buildEye(-1);
+buildEye(1);
+
+// thick, slightly uneven eyebrows
+const browL = box(headGrp, 0.07, 0.022, 0.03, MAT.hair, -0.058, 0.215, 0.14);
+browL.rotation.z = 0.14; browL.rotation.x = -0.1;
+const browR = box(headGrp, 0.075, 0.024, 0.03, MAT.hair, 0.058, 0.22, 0.14);
+browR.rotation.z = -0.2; browR.rotation.x = -0.1;
+
+// closed, mildly weary mouth (set into the beard)
+box(headGrp, 0.07, 0.014, 0.02, MAT.skinDark, 0, 0.062, 0.148);
+
+// ears
+box(headGrp, 0.025, 0.06, 0.045, MAT.skin, -0.128, 0.12, -0.005);
+box(headGrp, 0.025, 0.06, 0.045, MAT.skin, 0.128, 0.12, -0.005);
+
+/* beard — connected angular masses following cheeks, jaw, chin, upper lip */
+const beardGrp = new THREE.Group();
+headGrp.add(beardGrp);
+box(beardGrp, 0.16, 0.1, 0.05, MAT.beard, 0, 0.015, 0.115);                 // chin mass
+box(beardGrp, 0.05, 0.11, 0.13, MAT.beard, -0.088, 0.045, 0.06);            // jaw L
+box(beardGrp, 0.05, 0.11, 0.13, MAT.beard, 0.088, 0.045, 0.06);             // jaw R
+const jawL = box(beardGrp, 0.045, 0.08, 0.07, MAT.beard, -0.075, 0.0, 0.1);
+jawL.rotation.z = 0.3;
+const jawR = box(beardGrp, 0.045, 0.08, 0.07, MAT.beard, 0.075, 0.0, 0.1);
+jawR.rotation.z = -0.3;
+box(beardGrp, 0.09, 0.03, 0.035, MAT.beard, 0, 0.085, 0.14);                // mustache
+box(beardGrp, 0.05, 0.035, 0.03, MAT.beardLight, -0.03, -0.01, 0.128);      // uneven streaks
+box(beardGrp, 0.045, 0.03, 0.028, MAT.beardLight, 0.04, 0.03, 0.12);
+box(beardGrp, 0.055, 0.05, 0.05, MAT.beard, -0.09, 0.1, 0.085);             // cheek beard
+box(beardGrp, 0.055, 0.05, 0.05, MAT.beard, 0.09, 0.1, 0.085);
+
+/* uneven dark hair with gray streaks, at temples and beneath the hat */
+box(headGrp, 0.055, 0.07, 0.06, MAT.hair, -0.115, 0.185, 0.03);   // temple L
+box(headGrp, 0.05, 0.06, 0.055, MAT.hairGray, -0.115, 0.16, 0.045);
+box(headGrp, 0.055, 0.07, 0.06, MAT.hair, 0.115, 0.185, 0.03);    // temple R
+box(headGrp, 0.05, 0.055, 0.05, MAT.hairGray, 0.115, 0.16, 0.045);
+box(headGrp, 0.24, 0.07, 0.1, MAT.hair, 0, 0.2, -0.09);           // back hair
+box(headGrp, 0.06, 0.05, 0.05, MAT.hairGray, 0.05, 0.185, -0.115);
+
+/* faded burgundy beanie: folded rim, slouched crown, geometric ribs */
+const beanie = new THREE.Group();
+beanie.position.set(0, 0.285, -0.005);
+beanie.rotation.x = -0.05;
+headGrp.add(beanie);
+const crown = cyl(beanie, 0.145, 0.15, 0.13, 8, MAT.beanie, 0, 0.055, 0);
+const slouch = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 5), MAT.beanie);
+slouch.position.set(0, 0.1, -0.015);
+slouch.scale.set(1.0, 0.72, 1.05);
+slouch.castShadow = true;
+beanie.add(slouch);
+const rim = cyl(beanie, 0.163, 0.163, 0.065, 8, MAT.beanieDark, 0, -0.02, 0.001);
+rim.rotation.x = 0.04;
+// broad geometric ribs
+for (let i = 0; i < 5; i++) {
+  const a = (i / 5) * Math.PI * 2 + 0.3;
+  const rib = box(beanie, 0.024, 0.15, 0.024, MAT.beanieDark, Math.sin(a) * 0.135, 0.05, Math.cos(a) * 0.135);
+  rib.rotation.y = a;
+}
+
+/* ---------- arms ---------- */
+const UP_ARM = 0.27, FORE_ARM = 0.25;
+
+function buildArm(side) {
+  // shoulder pivot
+  const sh = new THREE.Group();
+  sh.position.set(0.275 * side, 0.46, 0.02);
+  torso.add(sh);
+  // shoulder pad
+  const pad = new THREE.Mesh(new THREE.SphereGeometry(0.095, 7, 5), MAT.jacket);
+  pad.castShadow = true;
+  sh.add(pad);
+  // upper arm (extends downward along -Y of the pivot)
+  const upper = box(sh, 0.13, UP_ARM, 0.14, MAT.jacket, 0, -UP_ARM / 2, 0);
+  // elbow pivot
+  const el = new THREE.Group();
+  el.position.set(0, -UP_ARM, 0);
+  sh.add(el);
+  const fore = box(el, 0.115, FORE_ARM, 0.12, MAT.jacket, 0, -FORE_ARM / 2, 0);
+  // elbow patch
+  box(el, 0.07, 0.09, 0.03, MAT.patchLeather, 0.055 * side, -FORE_ARM / 2, 0);
+  // wrist / hand pivot
+  const wrist = new THREE.Group();
+  wrist.position.set(0, -FORE_ARM, 0);
+  el.add(wrist);
+  return { sh, el, wrist };
+}
+
+const armR = buildArm(1);   // cup hand
+const armL = buildArm(-1);  // strap hand
+
+/* glove hand builder: palm, fingerless glove fingers with skin tips */
+function buildHand(wrist, gripping) {
+  const h = new THREE.Group();
+  wrist.add(h);
+  box(h, 0.075, 0.05, 0.09, MAT.glove, 0, 0, 0); // palm / glove back
+  return h;
+}
+const handR = buildHand(armR.wrist);
+const handL = buildHand(armL.wrist);
+
+/* ----- right arm pose: extends gently forward at waist height ----- */
+const aR = 1.0, bR = 0.45;              // shoulder + elbow bend (forward)
+armR.sh.rotation.x = -aR;
+armR.el.rotation.x = -bR;
+armR.wrist.rotation.x = aR + bR;        // hand level -> cup stays upright
+
+/* ----- left arm pose: bent toward the chest, gripping the strap ----- */
+armL.sh.rotation.set(-0.4, 0.7, 0);
+armL.el.rotation.x = -1.7;
+// orient the grip axis along the strap that runs down the chest
+handL.rotation.x = 1.45;
+
+/* ----- cup, parented to the right hand ----- */
+const cup = new THREE.Group();
+cup.position.set(0, 0.02, 0.052);       // directly inside the gripping hand
+handR.add(cup);
+const cupWall = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.033, 0.115, 10, 1, true), MAT.cup);
+cupWall.position.y = 0.05;
+cupWall.castShadow = true;
+cup.add(cupWall);
+const cupInner = new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.034, 0.1, 10, 1, true), MAT.cupBand);
+cupInner.position.y = 0.058;
+cup.add(cupInner);
+const cupBottom = new THREE.Mesh(new THREE.CircleGeometry(0.034, 10), MAT.cup);
+cupBottom.rotation.x = -Math.PI / 2;
+cupBottom.position.y = 0.008;
+cup.add(cupBottom);
+const cupRim = torus(cup, 0.046, 0.007, 10, MAT.cup, 0, 0.107, 0);
+cupRim.rotation.x = Math.PI / 2;
+const band = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.043, 0.03, 10, 1, true), MAT.cupBand);
+band.position.y = 0.055;
+cup.add(band);
+// a few coins visible inside
+cyl(cup, 0.016, 0.016, 0.005, 8, MAT.coin, 0.008, 0.075, 0.004);
+cyl(cup, 0.014, 0.014, 0.005, 8, MAT.coin, -0.01, 0.082, -0.006);
+cyl(cup, 0.013, 0.013, 0.005, 8, MAT.coin, 0.002, 0.089, 0.012);
+
+/* fingers of the right hand wrapping the lower half of the cup */
+for (let i = 0; i < 4; i++) {
+  const a = -0.85 + i * 0.55; // arc around the cup axis
+  const f = new THREE.Group();
+  f.position.set(Math.sin(a) * 0.05, 0.012 - Math.abs(a) * 0.006, 0.052 + Math.cos(a) * 0.05);
+  f.rotation.y = -a;
+  handR.add(f);
+  box(f, 0.02, 0.048, 0.022, MAT.glove, 0, 0, 0);
+  box(f, 0.017, 0.02, 0.02, MAT.skin, 0, -0.028, 0.002); // bare fingertip
+}
+// thumb against the opposite side
+const thumbR = new THREE.Group();
+thumbR.position.set(-0.05, 0.03, 0.015);
+thumbR.rotation.z = 0.5; thumbR.rotation.y = -0.5;
+handR.add(thumbR);
+box(thumbR, 0.022, 0.055, 0.024, MAT.glove, 0, 0, 0);
+box(thumbR, 0.019, 0.02, 0.021, MAT.skin, 0, -0.033, 0);
+
+/* fingers of the left hand wrapped around the strap (strap runs through) */
+for (let i = 0; i < 4; i++) {
+  const a = -0.75 + i * 0.5;
+  const f = new THREE.Group();
+  f.position.set(Math.sin(a) * 0.042, -0.005, 0.045 + Math.cos(a) * 0.02);
+  f.rotation.y = -a;
+  handL.add(f);
+  box(f, 0.02, 0.05, 0.022, MAT.glove, 0, 0, 0);
+  box(f, 0.017, 0.02, 0.02, MAT.skin, 0, -0.03, 0.002);
+}
+const thumbL = new THREE.Group();
+thumbL.position.set(-0.045, 0.02, 0.0);
+thumbL.rotation.z = 0.55; thumbL.rotation.y = -0.6;
+handL.add(thumbL);
+box(thumbL, 0.022, 0.05, 0.024, MAT.glove, 0, 0, 0);
+box(thumbL, 0.019, 0.018, 0.021, MAT.skin, 0, -0.03, 0);
+
+/* ---------- backpack, blanket, mug (follow the torso) ---------- */
+const pack = new THREE.Group();
+pack.position.set(0, 0.25, -0.21);
+torso.add(pack);
+rig.pack = pack;
+
+// sagging main compartment — tapered, slightly irregular
+const bagGeo = new THREE.BoxGeometry(0.42, 0.5, 0.22);
+taper(bagGeo, (x, y, z) => {
+  let sx = 1, sz = 1;
+  if (y < 0) { sx = 0.92; sz = 0.96; }       // slight sag, narrower base
+  if (y > 0.18) { sx = 1.03; }
+  return { x: sx, z: sz };
+});
+const bag = new THREE.Mesh(bagGeo, MAT.bagOlive);
+bag.castShadow = bag.receiveShadow = true;
+pack.add(bag);
+// thick top flap
+const flap = box(pack, 0.45, 0.2, 0.26, MAT.bagOliveDark, 0, 0.2, 0.015);
+flap.rotation.x = 0.12;
+// smaller front pocket
+box(pack, 0.24, 0.18, 0.07, MAT.bagOliveDark, 0, -0.06, -0.135);
+box(pack, 0.2, 0.03, 0.02, MAT.buckle, 0, 0.03, -0.15);      // pocket buckle
+// simple seam lines
+box(pack, 0.43, 0.014, 0.23, MAT.bagOliveDark, 0, 0.02, 0);
+box(pack, 0.014, 0.5, 0.23, MAT.bagOliveDark, -0.14, 0, 0);
+box(pack, 0.014, 0.5, 0.23, MAT.bagOliveDark, 0.14, 0, 0);
+// contrasting fabric patches
+box(pack, 0.09, 0.07, 0.012, MAT.bagPatch, -0.12, 0.12, -0.115).rotation.z = 0.15;
+box(pack, 0.07, 0.055, 0.012, MAT.bagPatch, 0.13, -0.1, -0.115).rotation.z = -0.2;
+// short carrying handle
+const handle = box(pack, 0.09, 0.03, 0.035, MAT.bagOliveDark, 0, 0.33, -0.02);
+handle.rotation.x = -0.1;
+
+// rolled sleeping blanket beneath the backpack — uneven, spiral ends
+const rollGrp = new THREE.Group();
+rollGrp.position.set(0, -0.26, -0.02);
+pack.add(rollGrp);
+const roll = cyl(rollGrp, 0.08, 0.085, 0.46, 8, MAT.blanket, 0, 0, 0);
+roll.rotation.z = Math.PI / 2;
+roll.scale.y = 1.05; // slightly uneven
+torus(rollGrp, 0.058, 0.03, 8, MAT.blanketDark, -0.23, 0.01, 0).rotation.y = Math.PI / 2;
+torus(rollGrp, 0.05, 0.026, 8, MAT.blanket, 0.23, -0.008, 0).rotation.y = Math.PI / 2;
+// two straps around the blanket
+box(rollGrp, 0.02, 0.2, 0.2, MAT.bootDark, -0.14, 0, 0);
+box(rollGrp, 0.02, 0.2, 0.2, MAT.bootDark, 0.15, 0, 0);
+
+// small metal mug attached to the side with a visible loop
+const mugGrp = new THREE.Group();
+mugGrp.position.set(-0.235, -0.12, -0.02);
+pack.add(mugGrp);
+rig.mug = mugGrp;
+const mug = cyl(mugGrp, 0.045, 0.038, 0.095, 9, MAT.mug, 0, -0.05, 0);
+const mugRim = torus(mugGrp, 0.045, 0.006, 9, MAT.mug, 0, -0.003, 0);
+mugRim.rotation.x = Math.PI / 2;
+torus(mugGrp, 0.02, 0.007, 8, MAT.buckle, 0, 0.012, 0).rotation.x = Math.PI / 2; // loop
+
+/* ---------- straps (placed after the world matrix exists) ---------- */
+scene.updateMatrixWorld(true);
+
+// world position of the left hand -> the strap must pass through the grip
+const handLWorld = handL.getWorldPosition(new THREE.Vector3());
+const handLTorso = torso.worldToLocal(handLWorld.clone());
+
+// left strap: bag top -> over the shoulder -> chest front -> through the gripping hand -> waist
+const strapMat = MAT.bagOliveDark;
+segment(torso, new THREE.Vector3(-0.17, 0.46, -0.16), new THREE.Vector3(-0.2, 0.55, 0.03), 0.055, 0.02, strapMat);
+segment(torso, new THREE.Vector3(-0.2, 0.57, 0.03), new THREE.Vector3(-0.17, 0.46, 0.21), 0.055, 0.02, strapMat);
+segment(torso, new THREE.Vector3(-0.17, 0.46, 0.21), handLTorso, 0.055, 0.02, strapMat);
+segment(torso, handLTorso, new THREE.Vector3(-0.13, 0.03, 0.2), 0.05, 0.02, strapMat);
+box(torso, 0.045, 0.035, 0.03, MAT.buckle, -0.135, 0.08, 0.21);
+
+// right strap: bag -> over the right shoulder -> down the chest front
+segment(torso, new THREE.Vector3(0.17, 0.46, -0.16), new THREE.Vector3(0.2, 0.55, 0.03), 0.055, 0.02, strapMat);
+segment(torso, new THREE.Vector3(0.2, 0.57, 0.03), new THREE.Vector3(0.17, 0.42, 0.21), 0.055, 0.02, strapMat);
+segment(torso, new THREE.Vector3(0.17, 0.42, 0.21), new THREE.Vector3(0.13, 0.03, 0.19), 0.055, 0.02, strapMat);
+box(torso, 0.05, 0.04, 0.03, MAT.buckle, 0.14, 0.08, 0.2);
+
+/* ---------- animation base state ---------- */
+const baseTorsoRX = torso.rotation.x;
+const baseHead = { x: headGrp.rotation.x, y: headGrp.rotation.y, z: headGrp.rotation.z };
+const baseShR = armR.sh.rotation.x;
+const baseShL = armL.sh.rotation.x;
+const basePack = pack.position.y;
+
+/* ============================================================
+   ANIMATION — subtle idle, frame-rate independent
+============================================================ */
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  // gentle breathing — chest and shoulders
+  const breath = Math.sin(t * 1.5);
+  const breath2 = Math.sin(t * 1.5 - 0.4);
+  rig.chest.scale.set(1 + breath * 0.015, 1 + breath * 0.008, 1 + breath * 0.02);
+  rig.torso.rotation.x = baseTorsoRX + breath * 0.012;
+  armR.sh.rotation.x = baseShR + breath2 * 0.02;
+  armL.sh.rotation.x = baseShL + breath2 * 0.018;
+
+  // very slight head movement
+  rig.head.rotation.y = baseHead.y + Math.sin(t * 0.55) * 0.035;
+  rig.head.rotation.x = baseHead.x + Math.sin(t * 0.8 + 1.2) * 0.02;
+  rig.head.rotation.z = baseHead.z + Math.sin(t * 0.45) * 0.012;
+
+  // minimal coordinated arm sway
+  armR.el.rotation.x = -bR + breath2 * 0.015;
+  armL.el.rotation.x = -1.7 + breath2 * 0.012;
+
+  // restrained secondary sway — hanging scarf end and attached mug
+  rig.scarfTail.rotation.x = Math.sin(t * 1.15 + 0.8) * 0.05;
+  rig.scarfTail.rotation.z = Math.sin(t * 0.7) * 0.04;
+  rig.mug.rotation.z = Math.sin(t * 1.05 + 0.3) * 0.035;
+  rig.mug.rotation.x = Math.sin(t * 0.75 + 1.1) * 0.03;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ============================================================
+   RESIZE
+============================================================ */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+});
+</script>
+</body>
+</html>

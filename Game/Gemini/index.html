@@ -1,0 +1,3112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Помойный замес</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍾</text></svg>">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #1a1917;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #f0e6d6;
+    }
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* --- HUD OVERLAY --- */
+    #hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      display: none;
+    }
+
+    /* Top Left: Player Status */
+    .player-card {
+      position: absolute;
+      top: 18px;
+      left: 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: rgba(22, 20, 18, 0.88);
+      padding: 10px 18px 10px 12px;
+      border-radius: 12px;
+      border: 2px solid #4a3e34;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(6px);
+    }
+    .player-avatar {
+      width: 48px;
+      height: 48px;
+      background: #382c22;
+      border: 2px solid #8c6448;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+    }
+    .player-info {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .player-title-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #dfcaa7;
+      text-transform: uppercase;
+    }
+    .hp-bar-bg {
+      width: 180px;
+      height: 18px;
+      background: #201a16;
+      border-radius: 9px;
+      overflow: hidden;
+      border: 1px solid #5a4b3d;
+      position: relative;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.7);
+    }
+    .hp-bar-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #d32f2f, #ff9800, #4caf50);
+      background-size: 180px 100%;
+      border-radius: 8px;
+      transition: width 0.15s ease-out;
+    }
+    .hp-text {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      color: #ffffff;
+      text-shadow: 1px 1px 2px #000;
+    }
+
+    /* Top Center: Ammo & Items */
+    .inventory-card {
+      position: absolute;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 12px;
+      background: rgba(22, 20, 18, 0.88);
+      padding: 8px 16px;
+      border-radius: 12px;
+      border: 2px solid #4a3e34;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(6px);
+    }
+    .item-slot {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: #2a221b;
+      border-radius: 8px;
+      border: 2px solid transparent;
+      transition: all 0.15s ease;
+    }
+    .item-slot.active {
+      border-color: #f5a623;
+      background: #3e3024;
+      box-shadow: 0 0 10px rgba(245, 166, 35, 0.4);
+    }
+    .item-icon {
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .item-details {
+      display: flex;
+      flex-direction: column;
+    }
+    .item-name {
+      font-size: 10px;
+      color: #a89a87;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .item-count {
+      font-size: 16px;
+      font-weight: 800;
+      color: #fff;
+    }
+    .tab-hint {
+      font-size: 9px;
+      background: #4a3e34;
+      color: #e5d5be;
+      padding: 1px 5px;
+      border-radius: 4px;
+      margin-left: 4px;
+      font-weight: 700;
+    }
+
+    /* Boss HP Bar */
+    #boss-hud {
+      position: absolute;
+      top: 86px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      background: rgba(26, 12, 12, 0.92);
+      padding: 8px 24px;
+      border-radius: 10px;
+      border: 2px solid #8e2424;
+      box-shadow: 0 8px 24px rgba(180, 20, 20, 0.35);
+      backdrop-filter: blur(6px);
+    }
+    .boss-name {
+      font-size: 13px;
+      font-weight: 800;
+      color: #ff6b6b;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .boss-hp-bg {
+      width: 280px;
+      height: 16px;
+      background: #1e0d0d;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #751a1a;
+      position: relative;
+    }
+    .boss-hp-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #d32f2f, #ff5252);
+      transition: width 0.15s ease-out;
+    }
+
+    /* Interaction Prompt */
+    #interaction-prompt {
+      position: absolute;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      background: rgba(18, 16, 14, 0.92);
+      padding: 10px 22px;
+      border-radius: 12px;
+      border: 2px solid #f5a623;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), 0 0 15px rgba(245, 166, 35, 0.3);
+      backdrop-filter: blur(6px);
+      text-align: center;
+    }
+    .prompt-text {
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 0.5px;
+    }
+    .prompt-progress-bar {
+      width: 140px;
+      height: 8px;
+      background: #2d241c;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid #5a4b3d;
+      display: none;
+    }
+    .prompt-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #f5a623;
+      transition: width 0.05s linear;
+    }
+
+    /* Floating Combat / Loot Texts */
+    .floating-text {
+      position: absolute;
+      font-weight: 900;
+      text-shadow: 0 2px 4px #000, 0 0 8px rgba(0,0,0,0.8);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      animation: floatUp 0.85s ease-out forwards;
+      white-space: nowrap;
+    }
+    @keyframes floatUp {
+      0% { opacity: 0; transform: translate(-50%, 0) scale(0.7); }
+      20% { opacity: 1; transform: translate(-50%, -15px) scale(1.15); }
+      100% { opacity: 0; transform: translate(-50%, -45px) scale(0.95); }
+    }
+
+    /* Bottom Controls Help Strip */
+    .controls-strip {
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 14px;
+      background: rgba(16, 14, 12, 0.8);
+      padding: 6px 18px;
+      border-radius: 20px;
+      border: 1px solid #3d332a;
+      font-size: 11px;
+      color: #b5a48f;
+      backdrop-filter: blur(4px);
+    }
+    .key-badge {
+      display: inline-block;
+      background: #33281e;
+      color: #f0e6d6;
+      font-weight: 800;
+      padding: 1px 6px;
+      border-radius: 4px;
+      border: 1px solid #63503f;
+      margin-right: 4px;
+    }
+
+    /* --- OVERLAYS (START, VICTORY, DEFEAT) --- */
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(10, 8, 7, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(8px);
+      z-index: 100;
+    }
+    .modal-dialog {
+      background: #1f1a16;
+      border: 3px solid #634b35;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9), 0 0 30px rgba(138, 98, 62, 0.25);
+      border-radius: 16px;
+      padding: 32px 40px;
+      max-width: 540px;
+      width: 90%;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      animation: popIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    }
+    @keyframes popIn {
+      0% { opacity: 0; transform: scale(0.85); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .modal-title {
+      font-size: 32px;
+      font-weight: 900;
+      color: #f7ca6d;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-shadow: 0 3px 6px #000;
+      margin-bottom: -6px;
+    }
+    .modal-subtitle {
+      font-size: 14px;
+      color: #beb09b;
+      line-height: 1.45;
+    }
+    .controls-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 18px;
+      background: #14110e;
+      padding: 16px 20px;
+      border-radius: 10px;
+      border: 1px solid #3a2e24;
+      text-align: left;
+      width: 100%;
+      font-size: 12px;
+    }
+    .ctrl-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #cfbeaa;
+    }
+    .btn {
+      background: linear-gradient(180deg, #f5a623, #d47e09);
+      color: #1a1209;
+      font-size: 17px;
+      font-weight: 900;
+      padding: 14px 38px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(245, 166, 35, 0.4), inset 0 1px 0 rgba(255,255,255,0.4);
+      transition: all 0.15s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      pointer-events: auto;
+    }
+    .btn:hover {
+      background: linear-gradient(180deg, #ffb845, #e88d15);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(245, 166, 35, 0.55);
+    }
+    .btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 3px 10px rgba(245, 166, 35, 0.3);
+    }
+
+    /* Stats on Victory */
+    .stats-card {
+      background: #14110e;
+      border: 1px solid #3a2e24;
+      border-radius: 10px;
+      padding: 14px 20px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 14px;
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      color: #bfaea0;
+    }
+    .stat-val {
+      font-weight: 800;
+      color: #fff;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- IN-GAME HUD -->
+  <div id="hud">
+    <!-- Player HP -->
+    <div class="player-card">
+      <div class="player-avatar">🧔</div>
+      <div class="player-info">
+        <div class="player-title-row">
+          <span>Бомж</span>
+          <span id="hp-val">100 / 100</span>
+        </div>
+        <div class="hp-bar-bg">
+          <div id="hp-bar-fill" class="hp-bar-fill"></div>
+          <div id="hp-text" class="hp-text">100%</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ammo & Items Selector -->
+    <div class="inventory-card">
+      <div id="slot-bottle" class="item-slot active">
+        <div class="item-icon">🍾</div>
+        <div class="item-details">
+          <span class="item-name">Бутылки <span class="tab-hint">Tab</span></span>
+          <span id="count-bottle" class="item-count">2</span>
+        </div>
+      </div>
+      <div id="slot-trash" class="item-slot">
+        <div class="item-icon">🥫</div>
+        <div class="item-details">
+          <span class="item-name">Мусор <span class="tab-hint">Tab</span></span>
+          <span id="count-trash" class="item-count">3</span>
+        </div>
+      </div>
+      <div id="slot-drink" class="item-slot">
+        <div class="item-icon">🍶</div>
+        <div class="item-details">
+          <span class="item-name">Настойка <span class="tab-hint">Q</span></span>
+          <span id="count-drink" class="item-count">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Boss HP Bar -->
+    <div id="boss-hud">
+      <div class="boss-name">БОСС: ВАСЯ «КИРПИЧ»</div>
+      <div class="boss-hp-bg">
+        <div id="boss-hp-fill" class="boss-hp-fill"></div>
+      </div>
+    </div>
+
+    <!-- Interaction Prompt -->
+    <div id="interaction-prompt">
+      <div id="prompt-label" class="prompt-text">E — Обыскать</div>
+      <div id="prompt-progress-bar" class="prompt-progress-bar">
+        <div id="prompt-progress-fill" class="prompt-progress-fill"></div>
+      </div>
+    </div>
+
+    <!-- Bottom Controls Help Strip -->
+    <div class="controls-strip">
+      <span><span class="key-badge">A/D</span> Ходьба</span>
+      <span><span class="key-badge">Space</span> Прыжок</span>
+      <span><span class="key-badge">J</span> Удар</span>
+      <span><span class="key-badge">K</span> Бросок</span>
+      <span><span class="key-badge">Tab</span> Смена оружия</span>
+      <span><span class="key-badge">E</span> Обыск / Приёмка</span>
+      <span><span class="key-badge">Q</span> Выпить (+30 HP)</span>
+      <span><span class="key-badge">R</span> Сброс</span>
+    </div>
+  </div>
+
+  <!-- FLOATING TEXT CONTAINER -->
+  <div id="floating-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></div>
+
+  <!-- START MODAL -->
+  <div id="start-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <h1 class="modal-title">ПОМОЙНЫЙ ЗАМЕС</h1>
+      <p class="modal-subtitle">
+        Пробейтесь через недружелюбный городской переулок к пункту приёма стеклотары.<br>
+        Ищите бутылки в баках, швыряйтесь мусором и вырубайте конкурентов!
+      </p>
+
+      <div class="controls-grid">
+        <div class="ctrl-row"><span class="key-badge">A / D</span> Движение влево / вправо</div>
+        <div class="ctrl-row"><span class="key-badge">Space</span> Прыжок через препятствия</div>
+        <div class="ctrl-row"><span class="key-badge">J</span> Удар кулаком (18 урона)</div>
+        <div class="ctrl-row"><span class="key-badge">K</span> Бросок предмета (30 / 15 урона)</div>
+        <div class="ctrl-row"><span class="key-badge">Tab</span> Переключить бутылки / мусор</div>
+        <div class="ctrl-row"><span class="key-badge">E (зажать)</span> Обыскать бак или кучу</div>
+        <div class="ctrl-row"><span class="key-badge">Q</span> Настойка (+30 HP)</div>
+        <div class="ctrl-row"><span class="key-badge">R</span> Быстрый перезапуск</div>
+      </div>
+
+      <button id="btn-start" class="btn">НАЧАТЬ ЗАМЕС</button>
+    </div>
+  </div>
+
+  <!-- DEFEAT MODAL -->
+  <div id="defeat-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-dialog" style="border-color: #8e2424;">
+      <h1 class="modal-title" style="color: #ff5252;">ВАС ВЫРУБИЛИ...</h1>
+      <p class="modal-subtitle">
+        Местные бродяги оказались проворнее и отобрали всю найденную тару.<br>
+        Очнитесь и покажите, кто здесь настоящий хозяин помойки!
+      </p>
+      <button id="btn-defeat-restart" class="btn" style="background: linear-gradient(180deg, #d32f2f, #9a1b1b); color: #fff;">
+        ПОПРОБОВАТЬ СНОВА (R)
+      </button>
+    </div>
+  </div>
+
+  <!-- VICTORY MODAL -->
+  <div id="victory-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-dialog" style="border-color: #4caf50;">
+      <h1 class="modal-title" style="color: #69f0ae;">ТАРА СДАНА! ПОБЕДА!</h1>
+      <p class="modal-subtitle">
+        Вы одолели всех соперников, дошли до приёмки и выручили звонкую монету!
+      </p>
+
+      <div class="stats-card">
+        <div class="stat-row">
+          <span>Время прохождения:</span>
+          <span id="stat-time" class="stat-val">0:00</span>
+        </div>
+        <div class="stat-row">
+          <span>Побеждено соперников:</span>
+          <span id="stat-enemies" class="stat-val">5 / 5</span>
+        </div>
+        <div class="stat-row">
+          <span>Сдано пустых бутылок:</span>
+          <span id="stat-bottles" class="stat-val">0 шт.</span>
+        </div>
+        <div class="stat-row" style="border-top: 1px solid #3a2e24; padding-top: 6px;">
+          <span style="color: #f5a623; font-weight: 800;">Итоговый счёт:</span>
+          <span id="stat-score" class="stat-val" style="color: #f5a623; font-size: 16px;">0 очков</span>
+        </div>
+      </div>
+
+      <button id="btn-victory-restart" class="btn">ИГРАТЬ СНОВА (R)</button>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- GAME JAVASCRIPT CODE -->
+  <!-- ========================================== -->
+  <script>
+  (function() {
+    'use strict';
+
+    /* =========================================================
+     * 1. AUDIO SYNTHESIZER (WEB AUDIO API - ZERO ASSETS)
+     * ========================================================= */
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    const Sound = {
+      punchWhoosh() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(45, now + 0.12);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.12);
+      },
+
+      punchHit() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        // Low punch thump
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(130, now);
+        osc.frequency.exponentialRampToValueAtTime(30, now + 0.15);
+        gain.gain.setValueAtTime(0.7, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.15);
+
+        // Crack noise
+        const bufferSize = audioCtx.sampleRate * 0.05;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.2));
+        }
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+        const noiseGain = audioCtx.createGain();
+        noiseGain.gain.setValueAtTime(0.4, now);
+        noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+        noise.connect(noiseGain);
+        noiseGain.connect(audioCtx.destination);
+        noise.start(now);
+      },
+
+      bottleThrow() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(380, now);
+        osc.frequency.exponentialRampToValueAtTime(120, now + 0.18);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.18);
+      },
+
+      glassBreak() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        // High tinkling square frequencies
+        [1800, 2400, 3100, 1400].forEach((freq, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(freq + Math.random() * 200, now + idx * 0.015);
+          osc.frequency.exponentialRampToValueAtTime(400, now + idx * 0.015 + 0.18);
+          gain.gain.setValueAtTime(0.18, now + idx * 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.015 + 0.18);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + idx * 0.015);
+          osc.stop(now + idx * 0.015 + 0.18);
+        });
+      },
+
+      trashHit() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(90, now);
+        osc.frequency.exponentialRampToValueAtTime(25, now + 0.16);
+        gain.gain.setValueAtTime(0.5, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.16);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.16);
+      },
+
+      searchRustle() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const bufferSize = audioCtx.sampleRate * 0.08;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * 0.4;
+        }
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(800 + Math.random() * 600, now);
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        noise.start(now);
+      },
+
+      pickup() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        [523.25, 659.25, 783.99].forEach((freq, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+          gain.gain.setValueAtTime(0.2, now + idx * 0.06);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.06 + 0.15);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + idx * 0.06);
+          osc.stop(now + idx * 0.06 + 0.15);
+        });
+      },
+
+      drink() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        // Gulp
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(140, now + 0.18);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.18);
+
+        // Pleasant sparkle chime
+        setTimeout(() => {
+          if (!audioCtx) return;
+          const t = audioCtx.currentTime;
+          [880, 1108, 1320].forEach((f, i) => {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.type = 'sine';
+            o.frequency.setValueAtTime(f, t + i * 0.07);
+            g.gain.setValueAtTime(0.18, t + i * 0.07);
+            g.gain.exponentialRampToValueAtTime(0.01, t + i * 0.07 + 0.22);
+            o.connect(g);
+            g.connect(audioCtx.destination);
+            o.start(t + i * 0.07);
+            o.stop(t + i * 0.07 + 0.22);
+          });
+        }, 180);
+      },
+
+      hurt() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(60, now + 0.18);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.18);
+      },
+
+      enemyDefeat() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(220, now);
+        osc.frequency.exponentialRampToValueAtTime(55, now + 0.35);
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.35);
+      },
+
+      victory() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+          gain.gain.setValueAtTime(0.3, now + idx * 0.12);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.12 + 0.5);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + idx * 0.12);
+          osc.stop(now + idx * 0.12 + 0.5);
+        });
+      },
+
+      defeat() {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const notes = [392.00, 349.23, 311.13, 261.63];
+        notes.forEach((freq, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.2);
+          gain.gain.setValueAtTime(0.25, now + idx * 0.2);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.2 + 0.4);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + idx * 0.2);
+          osc.stop(now + idx * 0.2 + 0.4);
+        });
+      }
+    };
+
+    /* =========================================================
+     * 2. THREE.JS SCENE, ORTHOGRAPHIC CAMERA & LIGHTING
+     * ========================================================= */
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x181512);
+    scene.fog = new THREE.FogExp2(0x181512, 0.018);
+
+    // Orthographic Camera looking from side along Z axis
+    const FRUSTUM_HEIGHT = 7.4;
+    let aspect = window.innerWidth / window.innerHeight;
+    let frustumWidth = FRUSTUM_HEIGHT * aspect;
+    const camera = new THREE.OrthographicCamera(
+      -frustumWidth / 2, frustumWidth / 2,
+      FRUSTUM_HEIGHT / 2, -FRUSTUM_HEIGHT / 2,
+      0.1, 100
+    );
+    camera.position.set(3, 2.5, 18);
+    camera.lookAt(3, 2.5, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    container.appendChild(renderer.domElement);
+
+    // Warm daylight & ambient fill
+    const hemiLight = new THREE.HemisphereLight(0xffeedd, 0x4a4038, 0.85);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xfff0d8, 1.4);
+    dirLight.position.set(-6, 12, 12);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.near = 1;
+    dirLight.shadow.camera.far = 35;
+    dirLight.shadow.camera.left = -16;
+    dirLight.shadow.camera.right = 16;
+    dirLight.shadow.camera.top = 10;
+    dirLight.shadow.camera.bottom = -4;
+    dirLight.shadow.bias = -0.0005;
+    scene.add(dirLight);
+
+    // Cool rim light for silhouette separation
+    const rimLight = new THREE.DirectionalLight(0x7ea0c0, 0.5);
+    rimLight.position.set(8, 4, -8);
+    scene.add(rimLight);
+
+    /* =========================================================
+     * 3. MATERIALS PALETTE (LOW-POLY FLAT SHADED)
+     * ========================================================= */
+    const Mat = {
+      // Skin & Face
+      skin: new THREE.MeshStandardMaterial({ color: 0xd4a37f, roughness: 0.85, flatShading: true }),
+      skinDark: new THREE.MeshStandardMaterial({ color: 0xb5805e, roughness: 0.85, flatShading: true }),
+      nose: new THREE.MeshStandardMaterial({ color: 0xcc8d68, roughness: 0.85, flatShading: true }),
+      beardGray: new THREE.MeshStandardMaterial({ color: 0x5c544c, roughness: 0.92, flatShading: true }),
+      beardDark: new THREE.MeshStandardMaterial({ color: 0x3d352e, roughness: 0.92, flatShading: true }),
+      beardBrown: new THREE.MeshStandardMaterial({ color: 0x5e4838, roughness: 0.92, flatShading: true }),
+      eyeWhite: new THREE.MeshStandardMaterial({ color: 0xeae5dc, roughness: 0.5, flatShading: true }),
+      eyePupil: new THREE.MeshStandardMaterial({ color: 0x1f1f21, roughness: 0.4, flatShading: true }),
+      eyebrow: new THREE.MeshStandardMaterial({ color: 0x443a32, roughness: 0.9, flatShading: true }),
+
+      // Player clothes
+      beanieRed: new THREE.MeshStandardMaterial({ color: 0x6e2531, roughness: 0.88, flatShading: true }),
+      jacketBrown: new THREE.MeshStandardMaterial({ color: 0x584433, roughness: 0.92, flatShading: true }),
+      sweaterMustard: new THREE.MeshStandardMaterial({ color: 0xb38b30, roughness: 0.88, flatShading: true }),
+      pantsDark: new THREE.MeshStandardMaterial({ color: 0x2b2e34, roughness: 0.92, flatShading: true }),
+      patchJeans: new THREE.MeshStandardMaterial({ color: 0x48586c, roughness: 0.9, flatShading: true }),
+      bootLeather: new THREE.MeshStandardMaterial({ color: 0x36271c, roughness: 0.88, flatShading: true }),
+      bootSole: new THREE.MeshStandardMaterial({ color: 0x191614, roughness: 0.95, flatShading: true }),
+      gloveGreen: new THREE.MeshStandardMaterial({ color: 0x384738, roughness: 0.9, flatShading: true }),
+      backpackOlive: new THREE.MeshStandardMaterial({ color: 0x4b583a, roughness: 0.9, flatShading: true }),
+      blanketRoll: new THREE.MeshStandardMaterial({ color: 0x586975, roughness: 0.9, flatShading: true }),
+
+      // Enemies
+      coatBlue: new THREE.MeshStandardMaterial({ color: 0x3e5263, roughness: 0.92, flatShading: true }),
+      coatOlive: new THREE.MeshStandardMaterial({ color: 0x4d5537, roughness: 0.92, flatShading: true }),
+      coatGrey: new THREE.MeshStandardMaterial({ color: 0x515458, roughness: 0.92, flatShading: true }),
+      coatCharcoal: new THREE.MeshStandardMaterial({ color: 0x2d2f33, roughness: 0.92, flatShading: true }),
+      coatBossRed: new THREE.MeshStandardMaterial({ color: 0x581920, roughness: 0.9, flatShading: true }),
+      furCollar: new THREE.MeshStandardMaterial({ color: 0x3f3226, roughness: 0.95, flatShading: true }),
+      capTweed: new THREE.MeshStandardMaterial({ color: 0x3e3c36, roughness: 0.9, flatShading: true }),
+      beanieBlue: new THREE.MeshStandardMaterial({ color: 0x2b425b, roughness: 0.88, flatShading: true }),
+      shirtRedPlaid: new THREE.MeshStandardMaterial({ color: 0x7a3a3a, roughness: 0.9, flatShading: true }),
+
+      // Environment & Scenery
+      brickRed: new THREE.MeshStandardMaterial({ color: 0x7a3a2e, roughness: 0.95, flatShading: true }),
+      brickDark: new THREE.MeshStandardMaterial({ color: 0x522921, roughness: 0.95, flatShading: true }),
+      brickOchre: new THREE.MeshStandardMaterial({ color: 0x8a6a42, roughness: 0.95, flatShading: true }),
+      concreteGray: new THREE.MeshStandardMaterial({ color: 0x6e6a64, roughness: 0.9, flatShading: true }),
+      sidewalkLight: new THREE.MeshStandardMaterial({ color: 0x858076, roughness: 0.88, flatShading: true }),
+      asphaltDark: new THREE.MeshStandardMaterial({ color: 0x343230, roughness: 0.95, flatShading: true }),
+      curbStone: new THREE.MeshStandardMaterial({ color: 0x5b5750, roughness: 0.9, flatShading: true }),
+      windowLit: new THREE.MeshStandardMaterial({ color: 0xffd175, roughness: 0.4, emissive: 0x443010, flatShading: true }),
+      windowDark: new THREE.MeshStandardMaterial({ color: 0x242a30, roughness: 0.3, flatShading: true }),
+      metalRust: new THREE.MeshStandardMaterial({ color: 0x544034, roughness: 0.85, metalness: 0.25, flatShading: true }),
+      metalGreen: new THREE.MeshStandardMaterial({ color: 0x344f38, roughness: 0.75, metalness: 0.2, flatShading: true }),
+      metalBlue: new THREE.MeshStandardMaterial({ color: 0x32475e, roughness: 0.75, metalness: 0.2, flatShading: true }),
+      metalOrange: new THREE.MeshStandardMaterial({ color: 0x9e5229, roughness: 0.75, metalness: 0.2, flatShading: true }),
+      woodCrate: new THREE.MeshStandardMaterial({ color: 0x7a5b3a, roughness: 0.9, flatShading: true }),
+      woodSign: new THREE.MeshStandardMaterial({ color: 0x443322, roughness: 0.92, flatShading: true }),
+      puddle: new THREE.MeshStandardMaterial({ color: 0x262b2e, roughness: 0.15, metalness: 0.5, flatShading: true }),
+      trashBag: new THREE.MeshStandardMaterial({ color: 0x1f2022, roughness: 0.5, flatShading: true }),
+      cardboard: new THREE.MeshStandardMaterial({ color: 0x856545, roughness: 0.95, flatShading: true }),
+
+      // Pickups & Items
+      glassGreen: new THREE.MeshStandardMaterial({ color: 0x2e8b57, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.88, flatShading: true }),
+      glassBrown: new THREE.MeshStandardMaterial({ color: 0x935b2e, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.88, flatShading: true }),
+      bottleCap: new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.3, metalness: 0.8, flatShading: true }),
+      canMetal: new THREE.MeshStandardMaterial({ color: 0xaa2d2d, roughness: 0.4, metalness: 0.6, flatShading: true }),
+      medicineAmber: new THREE.MeshStandardMaterial({ color: 0xd47a1e, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.9, flatShading: true }),
+      whiteLabel: new THREE.MeshStandardMaterial({ color: 0xf5f0e8, roughness: 0.8, flatShading: true })
+    };
+
+    /* =========================================================
+     * 4. PROCEDURAL CHARACTER RIG GENERATOR
+     * ========================================================= */
+    function createCharacter(cfg) {
+      const root = new THREE.Group();
+      root.castShadow = true;
+
+      const scale = cfg.scale || 1.0;
+      const flipGroup = new THREE.Group();
+      flipGroup.scale.set(scale, scale, scale);
+      root.add(flipGroup);
+
+      // Pelvis / Hips
+      const pelvis = new THREE.Group();
+      pelvis.position.y = 0.95;
+      flipGroup.add(pelvis);
+
+      // Torso
+      const torsoMat = cfg.coatMat || Mat.jacketBrown;
+      const torsoGeo = new THREE.BoxGeometry(0.55, 0.65, 0.36);
+      const torso = new THREE.Mesh(torsoGeo, torsoMat);
+      torso.position.y = 0.35;
+      torso.castShadow = true;
+      pelvis.add(torso);
+
+      // Sweater collar / hem
+      const sweaterGeo = new THREE.BoxGeometry(0.48, 0.1, 0.34);
+      const sweater = new THREE.Mesh(sweaterGeo, cfg.sweaterMat || Mat.sweaterMustard);
+      sweater.position.y = 0.65;
+      torso.add(sweater);
+
+      // Patches on torso
+      if (cfg.hasPatches) {
+        const patchGeo = new THREE.BoxGeometry(0.12, 0.12, 0.02);
+        const patch = new THREE.Mesh(patchGeo, Mat.patchJeans);
+        patch.position.set(0.15, -0.1, 0.185);
+        torso.add(patch);
+      }
+
+      // Small battered backpack
+      if (cfg.hasBackpack) {
+        const packGeo = new THREE.BoxGeometry(0.38, 0.45, 0.22);
+        const pack = new THREE.Mesh(packGeo, Mat.backpackOlive);
+        pack.position.set(0, 0.05, -0.24);
+        pack.castShadow = true;
+        torso.add(pack);
+
+        // Bedroll underneath
+        const rollGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.42, 6);
+        rollGeo.rotateZ(Math.PI / 2);
+        const roll = new THREE.Mesh(rollGeo, Mat.blanketRoll);
+        roll.position.set(0, -0.22, -0.24);
+        torso.add(roll);
+      }
+
+      // Fur collar for boss
+      if (cfg.isBoss) {
+        const collarGeo = new THREE.BoxGeometry(0.68, 0.16, 0.44);
+        const collar = new THREE.Mesh(collarGeo, Mat.furCollar);
+        collar.position.y = 0.36;
+        torso.add(collar);
+      }
+
+      // Neck & Head
+      const headGroup = new THREE.Group();
+      headGroup.position.set(0, 0.72, 0);
+      torso.add(headGroup);
+
+      // Head shape
+      const headGeo = new THREE.BoxGeometry(0.42, 0.44, 0.4);
+      const head = new THREE.Mesh(headGeo, cfg.skinMat || Mat.skin);
+      head.position.y = 0.2;
+      head.castShadow = true;
+      headGroup.add(head);
+
+      // Nose
+      const noseGeo = new THREE.BoxGeometry(0.1, 0.12, 0.12);
+      const nose = new THREE.Mesh(noseGeo, Mat.nose);
+      nose.position.set(0.19, 0.18, 0);
+      nose.rotation.y = Math.PI / 2;
+      headGroup.add(nose);
+
+      // Eyes
+      const eyeGeo = new THREE.BoxGeometry(0.06, 0.06, 0.02);
+      const pupilGeo = new THREE.BoxGeometry(0.04, 0.04, 0.03);
+
+      const leftEye = new THREE.Mesh(eyeGeo, Mat.eyeWhite);
+      leftEye.position.set(0.2, 0.24, 0.1);
+      leftEye.rotation.y = Math.PI / 2;
+      const leftPupil = new THREE.Mesh(pupilGeo, Mat.eyePupil);
+      leftPupil.position.set(0.21, 0.24, 0.1);
+      leftPupil.rotation.y = Math.PI / 2;
+      headGroup.add(leftEye, leftPupil);
+
+      const rightEye = new THREE.Mesh(eyeGeo, Mat.eyeWhite);
+      rightEye.position.set(0.2, 0.24, -0.1);
+      rightEye.rotation.y = Math.PI / 2;
+      const rightPupil = new THREE.Mesh(pupilGeo, Mat.eyePupil);
+      rightPupil.position.set(0.21, 0.24, -0.1);
+      rightPupil.rotation.y = Math.PI / 2;
+      headGroup.add(rightEye, rightPupil);
+
+      // Heavy Eyebrows
+      const browGeo = new THREE.BoxGeometry(0.1, 0.04, 0.04);
+      const leftBrow = new THREE.Mesh(browGeo, Mat.eyebrow);
+      leftBrow.position.set(0.2, 0.29, 0.1);
+      leftBrow.rotation.y = Math.PI / 2;
+      const rightBrow = new THREE.Mesh(browGeo, Mat.eyebrow);
+      rightBrow.position.set(0.2, 0.29, -0.1);
+      rightBrow.rotation.y = Math.PI / 2;
+      headGroup.add(leftBrow, rightBrow);
+
+      // Hat / Beanie
+      if (cfg.hatType === 'beanie') {
+        const beanieGeo = new THREE.BoxGeometry(0.46, 0.24, 0.44);
+        const beanie = new THREE.Mesh(beanieGeo, cfg.hatMat || Mat.beanieRed);
+        beanie.position.y = 0.38;
+        headGroup.add(beanie);
+        // Beanie fold rim
+        const rimGeo = new THREE.BoxGeometry(0.48, 0.08, 0.46);
+        const rim = new THREE.Mesh(rimGeo, cfg.hatMat || Mat.beanieRed);
+        rim.position.y = 0.26;
+        headGroup.add(rim);
+      } else if (cfg.hatType === 'cap') {
+        const capGeo = new THREE.BoxGeometry(0.46, 0.16, 0.44);
+        const cap = new THREE.Mesh(capGeo, cfg.hatMat || Mat.capTweed);
+        cap.position.y = 0.36;
+        const visorGeo = new THREE.BoxGeometry(0.22, 0.04, 0.4);
+        const visor = new THREE.Mesh(visorGeo, cfg.hatMat || Mat.capTweed);
+        visor.position.set(0.24, 0.3, 0);
+        headGroup.add(cap, visor);
+      }
+
+      // Untidy beard
+      if (cfg.hasBeard) {
+        const beardGeo = new THREE.BoxGeometry(0.24, 0.26, 0.38);
+        const beard = new THREE.Mesh(beardGeo, cfg.beardMat || Mat.beardGray);
+        beard.position.set(0.12, 0.06, 0);
+        headGroup.add(beard);
+      }
+
+      // Arms (Hierarchical: Shoulder -> Elbow -> Forearm & Hand)
+      const armMat = cfg.coatMat || Mat.jacketBrown;
+      const gloveMat = cfg.gloveMat || Mat.gloveGreen;
+
+      // Left Arm (Far / Background arm in side view)
+      const leftArmGroup = new THREE.Group();
+      leftArmGroup.position.set(0, 0.58, -0.24);
+      torso.add(leftArmGroup);
+
+      const leftUpperGeo = new THREE.BoxGeometry(0.16, 0.32, 0.16);
+      const leftUpper = new THREE.Mesh(leftUpperGeo, armMat);
+      leftUpper.position.y = -0.16;
+      leftUpper.castShadow = true;
+      leftArmGroup.add(leftUpper);
+
+      const leftForearmGroup = new THREE.Group();
+      leftForearmGroup.position.y = -0.32;
+      leftArmGroup.add(leftForearmGroup);
+
+      const leftForeGeo = new THREE.BoxGeometry(0.14, 0.28, 0.14);
+      const leftFore = new THREE.Mesh(leftForeGeo, gloveMat);
+      leftFore.position.y = -0.14;
+      leftFore.castShadow = true;
+      leftForearmGroup.add(leftFore);
+
+      // Right Arm (Near / Foreground arm in side view)
+      const rightArmGroup = new THREE.Group();
+      rightArmGroup.position.set(0, 0.58, 0.24);
+      torso.add(rightArmGroup);
+
+      const rightUpperGeo = new THREE.BoxGeometry(0.16, 0.32, 0.16);
+      const rightUpper = new THREE.Mesh(rightUpperGeo, armMat);
+      rightUpper.position.y = -0.16;
+      rightUpper.castShadow = true;
+      rightArmGroup.add(rightUpper);
+
+      const rightForearmGroup = new THREE.Group();
+      rightForearmGroup.position.y = -0.32;
+      rightArmGroup.add(rightForearmGroup);
+
+      const rightForeGeo = new THREE.BoxGeometry(0.14, 0.28, 0.14);
+      const rightFore = new THREE.Mesh(rightForeGeo, gloveMat);
+      rightFore.position.y = -0.14;
+      rightFore.castShadow = true;
+      rightForearmGroup.add(rightFore);
+
+      // Held item anchor (in right hand)
+      const heldAnchor = new THREE.Group();
+      heldAnchor.position.set(0, -0.26, 0);
+      rightForearmGroup.add(heldAnchor);
+
+      // Legs (Hip -> Upper Leg -> Knee -> Lower Leg & Boot)
+      const pantsMat = cfg.pantsMat || Mat.pantsDark;
+
+      // Left Leg (Far side)
+      const leftLegGroup = new THREE.Group();
+      leftLegGroup.position.set(0, -0.05, -0.14);
+      pelvis.add(leftLegGroup);
+
+      const leftThighGeo = new THREE.BoxGeometry(0.18, 0.44, 0.18);
+      const leftThigh = new THREE.Mesh(leftThighGeo, pantsMat);
+      leftThigh.position.y = -0.22;
+      leftThigh.castShadow = true;
+      leftLegGroup.add(leftThigh);
+
+      const leftKneeGroup = new THREE.Group();
+      leftKneeGroup.position.y = -0.44;
+      leftLegGroup.add(leftKneeGroup);
+
+      const leftCalfGeo = new THREE.BoxGeometry(0.16, 0.36, 0.16);
+      const leftCalf = new THREE.Mesh(leftCalfGeo, pantsMat);
+      leftCalf.position.y = -0.18;
+      leftCalf.castShadow = true;
+      leftKneeGroup.add(leftCalf);
+
+      const leftBootGeo = new THREE.BoxGeometry(0.24, 0.14, 0.18);
+      const leftBoot = new THREE.Mesh(leftBootGeo, Mat.bootLeather);
+      leftBoot.position.set(0.04, -0.36, 0);
+      leftBoot.castShadow = true;
+      leftKneeGroup.add(leftBoot);
+
+      // Right Leg (Near side)
+      const rightLegGroup = new THREE.Group();
+      rightLegGroup.position.set(0, -0.05, 0.14);
+      pelvis.add(rightLegGroup);
+
+      const rightThighGeo = new THREE.BoxGeometry(0.18, 0.44, 0.18);
+      const rightThigh = new THREE.Mesh(rightThighGeo, pantsMat);
+      rightThigh.position.y = -0.22;
+      rightThigh.castShadow = true;
+      rightLegGroup.add(rightThigh);
+
+      // Knee patch
+      if (cfg.hasPatches) {
+        const kPatchGeo = new THREE.BoxGeometry(0.02, 0.12, 0.14);
+        const kPatch = new THREE.Mesh(kPatchGeo, Mat.patchJeans);
+        kPatch.position.set(0.09, -0.22, 0);
+        rightThigh.add(kPatch);
+      }
+
+      const rightKneeGroup = new THREE.Group();
+      rightKneeGroup.position.y = -0.44;
+      rightLegGroup.add(rightKneeGroup);
+
+      const rightCalfGeo = new THREE.BoxGeometry(0.16, 0.36, 0.16);
+      const rightCalf = new THREE.Mesh(rightCalfGeo, pantsMat);
+      rightCalf.position.y = -0.18;
+      rightCalf.castShadow = true;
+      rightKneeGroup.add(rightCalf);
+
+      const rightBootGeo = new THREE.BoxGeometry(0.24, 0.14, 0.18);
+      const rightBoot = new THREE.Mesh(rightBootGeo, Mat.bootLeather);
+      rightBoot.position.set(0.04, -0.36, 0);
+      rightBoot.castShadow = true;
+      rightKneeGroup.add(rightBoot);
+
+      scene.add(root);
+
+      return {
+        root,
+        flipGroup,
+        pelvis,
+        torso,
+        headGroup,
+        leftArmGroup,
+        leftForearmGroup,
+        rightArmGroup,
+        rightForearmGroup,
+        heldAnchor,
+        leftLegGroup,
+        leftKneeGroup,
+        rightLegGroup,
+        rightKneeGroup
+      };
+    }
+
+    /* =========================================================
+     * 5. ENVIRONMENT & LEVEL BUILDER
+     * ========================================================= */
+    const LEVEL_LENGTH = 50.0;
+    const obstacles = [];
+
+    function buildLevel() {
+      const levelGroup = new THREE.Group();
+
+      // 1. Sidewalk Pavement (Continuous along level)
+      const pavementGeo = new THREE.BoxGeometry(LEVEL_LENGTH + 6, 0.3, 2.4);
+      const pavement = new THREE.Mesh(pavementGeo, Mat.sidewalkLight);
+      pavement.position.set(LEVEL_LENGTH / 2, -0.15, 0);
+      pavement.receiveShadow = true;
+      levelGroup.add(pavement);
+
+      // Sidewalk expansion lines
+      for (let x = 0; x <= LEVEL_LENGTH + 4; x += 2.5) {
+        const lineGeo = new THREE.BoxGeometry(0.04, 0.01, 2.4);
+        const line = new THREE.Mesh(lineGeo, Mat.curbStone);
+        line.position.set(x, 0.005, 0);
+        levelGroup.add(line);
+      }
+
+      // Curb edge
+      const curbGeo = new THREE.BoxGeometry(LEVEL_LENGTH + 6, 0.15, 0.25);
+      const curb = new THREE.Mesh(curbGeo, Mat.curbStone);
+      curb.position.set(LEVEL_LENGTH / 2, -0.075, 1.3);
+      curb.receiveShadow = true;
+      levelGroup.add(curb);
+
+      // Asphalt roadway in foreground
+      const asphaltGeo = new THREE.BoxGeometry(LEVEL_LENGTH + 6, 0.25, 3.0);
+      const asphalt = new THREE.Mesh(asphaltGeo, Mat.asphaltDark);
+      asphalt.position.set(LEVEL_LENGTH / 2, -0.22, 2.8);
+      asphalt.receiveShadow = true;
+      levelGroup.add(asphalt);
+
+      // Reflective water puddle on street around X = 20
+      const puddleGeo = new THREE.CylinderGeometry(1.6, 1.8, 0.02, 10);
+      puddleGeo.scale(1.8, 1, 0.8);
+      const puddle = new THREE.Mesh(puddleGeo, Mat.puddle);
+      puddle.position.set(19.5, 0.008, 0.3);
+      levelGroup.add(puddle);
+
+      // Left Alley Dead-End Wall (X = 0)
+      const leftWallGeo = new THREE.BoxGeometry(0.8, 7.5, 6.0);
+      const leftWall = new THREE.Mesh(leftWallGeo, Mat.brickDark);
+      leftWall.position.set(-0.4, 3.75, 0.5);
+      leftWall.castShadow = true;
+      leftWall.receiveShadow = true;
+      levelGroup.add(leftWall);
+
+      // Right Alley End Wall (behind recycling station, X = 52)
+      const rightWallGeo = new THREE.BoxGeometry(0.8, 7.5, 6.0);
+      const rightWall = new THREE.Mesh(rightWallGeo, Mat.brickDark);
+      rightWall.position.set(LEVEL_LENGTH + 1.5, 3.75, 0.5);
+      rightWall.castShadow = true;
+      rightWall.receiveShadow = true;
+      levelGroup.add(rightWall);
+
+      // 2. Background Buildings Facades (Z < -1.2)
+      const bldgConfigs = [
+        { x: 4, w: 9, h: 6.8, d: 2.5, mat: Mat.brickRed, label: 'corner' },
+        { x: 13, w: 8, h: 7.6, d: 2.8, mat: Mat.concreteGray },
+        { x: 21, w: 9, h: 6.2, d: 2.2, mat: Mat.brickOchre },
+        { x: 29, w: 8, h: 7.2, d: 2.5, mat: Mat.brickDark },
+        { x: 37, w: 9, h: 6.5, d: 2.4, mat: Mat.brickRed },
+        { x: 45, w: 8, h: 7.0, d: 2.6, mat: Mat.concreteGray }
+      ];
+
+      bldgConfigs.forEach(b => {
+        const bGeo = new THREE.BoxGeometry(b.w, b.h, b.d);
+        const bMesh = new THREE.Mesh(bGeo, b.mat);
+        bMesh.position.set(b.x, b.h / 2, -1.8 - b.d / 2);
+        bMesh.receiveShadow = true;
+        levelGroup.add(bMesh);
+
+        // Cornice at top of building
+        const cornGeo = new THREE.BoxGeometry(b.w + 0.3, 0.35, b.d + 0.4);
+        const cornice = new THREE.Mesh(cornGeo, Mat.curbStone);
+        cornice.position.set(b.x, b.h + 0.15, -1.8 - b.d / 2);
+        levelGroup.add(cornice);
+
+        // Windows rows
+        const rows = Math.floor(b.h / 1.8);
+        const cols = Math.floor(b.w / 2.0);
+        for (let r = 1; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const winX = b.x - b.w / 2 + 1.2 + c * 1.8;
+            const winY = r * 1.7;
+            const isLit = (r + c + Math.floor(b.x)) % 3 === 0;
+
+            const frameGeo = new THREE.BoxGeometry(0.9, 1.2, 0.08);
+            const frame = new THREE.Mesh(frameGeo, Mat.metalRust);
+            frame.position.set(winX, winY, -1.78);
+            levelGroup.add(frame);
+
+            const glassGeo = new THREE.BoxGeometry(0.75, 1.05, 0.05);
+            const glass = new THREE.Mesh(glassGeo, isLit ? Mat.windowLit : Mat.windowDark);
+            glass.position.set(winX, winY, -1.75);
+            levelGroup.add(glass);
+          }
+        }
+
+        // Downspout drainpipe
+        const pipeGeo = new THREE.CylinderGeometry(0.06, 0.06, b.h, 6);
+        const pipe = new THREE.Mesh(pipeGeo, Mat.metalRust);
+        pipe.position.set(b.x - b.w / 2 + 0.3, b.h / 2, -1.72);
+        levelGroup.add(pipe);
+      });
+
+      // Recessed Doors & Steps
+      [6.5, 23.0, 36.0].forEach(doorX => {
+        const doorFrameGeo = new THREE.BoxGeometry(1.2, 2.3, 0.3);
+        const doorFrame = new THREE.Mesh(doorFrameGeo, Mat.curbStone);
+        doorFrame.position.set(doorX, 1.15, -1.7);
+        levelGroup.add(doorFrame);
+
+        const doorGeo = new THREE.BoxGeometry(0.9, 2.1, 0.05);
+        const door = new THREE.Mesh(doorGeo, Mat.metalRust);
+        door.position.set(doorX, 1.1, -1.6);
+        levelGroup.add(door);
+
+        const stepGeo = new THREE.BoxGeometry(1.4, 0.15, 0.4);
+        const step = new THREE.Mesh(stepGeo, Mat.curbStone);
+        step.position.set(doorX, 0.075, -1.4);
+        step.receiveShadow = true;
+        levelGroup.add(step);
+      });
+
+      // Fire Escapes on facades
+      [14.0, 30.0].forEach(fX => {
+        for (let lvl = 1; lvl <= 2; lvl++) {
+          const platY = lvl * 2.2;
+          const platGeo = new THREE.BoxGeometry(2.5, 0.1, 0.9);
+          const plat = new THREE.Mesh(platGeo, Mat.metalRust);
+          plat.position.set(fX, platY, -1.35);
+          levelGroup.add(plat);
+
+          // Railing
+          const railGeo = new THREE.BoxGeometry(2.5, 0.6, 0.04);
+          const rail = new THREE.Mesh(railGeo, Mat.metalRust);
+          rail.position.set(fX, platY + 0.3, -0.92);
+          levelGroup.add(rail);
+
+          // Ladder
+          const ladderGeo = new THREE.BoxGeometry(0.4, 2.2, 0.05);
+          const ladder = new THREE.Mesh(ladderGeo, Mat.metalRust);
+          ladder.position.set(fX + 1.0, platY - 1.1, -0.95);
+          levelGroup.add(ladder);
+        }
+      });
+
+      // Street Lamps (Warm pools of light)
+      [8.0, 24.0, 41.0].forEach(lX => {
+        const poleGeo = new THREE.CylinderGeometry(0.08, 0.1, 4.2, 8);
+        const pole = new THREE.Mesh(poleGeo, Mat.metalRust);
+        pole.position.set(lX, 2.1, -1.1);
+        pole.castShadow = true;
+        levelGroup.add(pole);
+
+        const armGeo = new THREE.BoxGeometry(0.8, 0.08, 0.08);
+        const arm = new THREE.Mesh(armGeo, Mat.metalRust);
+        arm.position.set(lX + 0.35, 4.2, -1.1);
+        levelGroup.add(arm);
+
+        const lampGeo = new THREE.ConeGeometry(0.25, 0.2, 6);
+        const lamp = new THREE.Mesh(lampGeo, Mat.windowLit);
+        lamp.position.set(lX + 0.7, 4.1, -1.1);
+        levelGroup.add(lamp);
+
+        // Soft warm point light
+        const pLight = new THREE.PointLight(0xffd580, 0.7, 8);
+        pLight.position.set(lX + 0.7, 3.8, -0.8);
+        levelGroup.add(pLight);
+      });
+
+      // 3. LOW OBSTACLES (Jumpable, solid collision)
+      // Obstacle 1: Low wooden crate at X = 15.5
+      const crate1Geo = new THREE.BoxGeometry(1.1, 0.55, 0.8);
+      const crate1 = new THREE.Mesh(crate1Geo, Mat.woodCrate);
+      crate1.position.set(15.5, 0.275, 0);
+      crate1.castShadow = true;
+      crate1.receiveShadow = true;
+      levelGroup.add(crate1);
+      obstacles.push({ xMin: 14.95, xMax: 16.05, yMax: 0.55, name: 'crate1' });
+
+      // Obstacle 2: Concrete step / slab at X = 25.0
+      const step2Geo = new THREE.BoxGeometry(1.3, 0.38, 0.9);
+      const step2 = new THREE.Mesh(step2Geo, Mat.curbStone);
+      step2.position.set(25.0, 0.19, 0);
+      step2.castShadow = true;
+      step2.receiveShadow = true;
+      levelGroup.add(step2);
+      obstacles.push({ xMin: 24.35, xMax: 25.65, yMax: 0.38, name: 'step2' });
+
+      // Obstacle 3: Crate stack at X = 34.5
+      const crate3Geo = new THREE.BoxGeometry(1.2, 0.6, 0.85);
+      const crate3 = new THREE.Mesh(crate3Geo, Mat.woodCrate);
+      crate3.position.set(34.5, 0.3, 0);
+      crate3.castShadow = true;
+      crate3.receiveShadow = true;
+      levelGroup.add(crate3);
+      obstacles.push({ xMin: 33.9, xMax: 35.1, yMax: 0.6, name: 'crate3' });
+
+      // 4. RECYCLING STATION KIOSK ("ПРИЁМ БУТЫЛОК" at X = 47.5 to 50.5)
+      const kioskGroup = new THREE.Group();
+      kioskGroup.position.set(48.5, 0, -0.6);
+
+      // Kiosk building structure
+      const kioskBaseGeo = new THREE.BoxGeometry(3.6, 3.2, 2.0);
+      const kioskBase = new THREE.Mesh(kioskBaseGeo, Mat.metalGreen);
+      kioskBase.position.set(0, 1.6, 0);
+      kioskBase.castShadow = true;
+      kioskBase.receiveShadow = true;
+      kioskGroup.add(kioskBase);
+
+      // Corrugated tin roof
+      const roofGeo = new THREE.BoxGeometry(4.0, 0.2, 2.4);
+      const roof = new THREE.Mesh(roofGeo, Mat.metalRust);
+      roof.position.set(0, 3.3, 0);
+      roof.rotation.z = -0.06;
+      kioskGroup.add(roof);
+
+      // Service window opening
+      const windowCounterGeo = new THREE.BoxGeometry(1.8, 1.2, 0.3);
+      const windowCounter = new THREE.Mesh(windowCounterGeo, Mat.woodSign);
+      windowCounter.position.set(-0.4, 1.5, 1.0);
+      kioskGroup.add(windowCounter);
+
+      const counterShelfGeo = new THREE.BoxGeometry(2.0, 0.12, 0.5);
+      const counterShelf = new THREE.Mesh(counterShelfGeo, Mat.curbStone);
+      counterShelf.position.set(-0.4, 0.9, 1.15);
+      kioskGroup.add(counterShelf);
+
+      // SIGNBOARD: "ПРИЁМ БУТЫЛОК" (Built procedurally with high-contrast canvas texture)
+      const signCanvas = document.createElement('canvas');
+      signCanvas.width = 512;
+      signCanvas.height = 128;
+      const sCtx = signCanvas.getContext('2d');
+      sCtx.fillStyle = '#261f18';
+      sCtx.fillRect(0, 0, 512, 128);
+      sCtx.lineWidth = 10;
+      sCtx.strokeStyle = '#d4af37';
+      sCtx.strokeRect(8, 8, 496, 112);
+      sCtx.fillStyle = '#f5c542';
+      sCtx.font = 'bold 50px sans-serif';
+      sCtx.textAlign = 'center';
+      sCtx.textBaseline = 'middle';
+      sCtx.fillText('ПРИЁМ БУТЫЛОК', 256, 64);
+
+      const signTex = new THREE.CanvasTexture(signCanvas);
+      const signMat = new THREE.MeshBasicMaterial({ map: signTex });
+      const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 0.75), signMat);
+      signMesh.position.set(-0.2, 2.65, 1.02);
+      kioskGroup.add(signMesh);
+
+      // Stacked crates of empty bottles outside kiosk
+      for (let cx = 0; cx < 3; cx++) {
+        const cGeo = new THREE.BoxGeometry(0.7, 0.4, 0.5);
+        const cMesh = new THREE.Mesh(cGeo, Mat.woodCrate);
+        cMesh.position.set(1.2, 0.2 + cx * 0.42, 0.9);
+        kioskGroup.add(cMesh);
+
+        // Bottle necks sticking out
+        for (let bx = -0.2; bx <= 0.2; bx += 0.2) {
+          const bGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.2, 6);
+          const bMesh = new THREE.Mesh(bGeo, Mat.glassGreen);
+          bMesh.position.set(1.2 + bx, 0.45 + cx * 0.42, 0.9);
+          kioskGroup.add(bMesh);
+        }
+      }
+
+      // Ground Recycling Zone Marking
+      const zoneGeo = new THREE.BoxGeometry(2.4, 0.02, 1.6);
+      const zoneMat = new THREE.MeshStandardMaterial({
+        color: 0x4caf50,
+        emissive: 0x1a451e,
+        roughness: 0.6,
+        flatShading: true
+      });
+      const zoneMesh = new THREE.Mesh(zoneGeo, zoneMat);
+      zoneMesh.position.set(-0.4, 0.015, 0.8);
+      kioskGroup.add(zoneMesh);
+
+      levelGroup.add(kioskGroup);
+
+      // Ambient Animated Details: Fluttering paper scraps
+      const papers = [];
+      for (let i = 0; i < 4; i++) {
+        const pGeo = new THREE.PlaneGeometry(0.2, 0.28);
+        const pMat = new THREE.MeshBasicMaterial({ color: 0xddddcc, side: THREE.DoubleSide });
+        const paper = new THREE.Mesh(pGeo, pMat);
+        paper.position.set(7 + i * 11 + Math.random() * 3, 0.02, 0.6 + Math.random() * 0.5);
+        paper.rotation.x = -Math.PI / 2;
+        paper.rotation.z = Math.random() * Math.PI;
+        levelGroup.add(paper);
+        papers.push({ mesh: paper, baseX: paper.position.x, seed: i * 2.5 });
+      }
+
+      scene.add(levelGroup);
+
+      return { kioskGroup, papers };
+    }
+
+    /* =========================================================
+     * 6. SEARCHABLE CONTAINERS & LOOT DEFINITION
+     * ========================================================= */
+    const containers = [];
+
+    function createDumpsterMesh(colorMat) {
+      const g = new THREE.Group();
+
+      // Main bin body
+      const bodyGeo = new THREE.BoxGeometry(1.4, 0.9, 0.9);
+      const body = new THREE.Mesh(bodyGeo, colorMat);
+      body.position.y = 0.55;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      g.add(body);
+
+      // Hinged Lid
+      const lidGroup = new THREE.Group();
+      lidGroup.position.set(0, 1.0, -0.45);
+      g.add(lidGroup);
+
+      const lidGeo = new THREE.BoxGeometry(1.44, 0.1, 0.95);
+      const lid = new THREE.Mesh(lidGeo, Mat.metalRust);
+      lid.position.set(0, 0.05, 0.45);
+      lid.castShadow = true;
+      lidGroup.add(lid);
+
+      // Wheels / legs
+      [-0.55, 0.55].forEach(wx => {
+        const wGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.12, 6);
+        wGeo.rotateZ(Math.PI / 2);
+        const wheel = new THREE.Mesh(wGeo, Mat.bootSole);
+        wheel.position.set(wx, 0.1, 0);
+        g.add(wheel);
+      });
+
+      return { group: g, lidGroup };
+    }
+
+    function createTrashCanMesh() {
+      const g = new THREE.Group();
+      const canGeo = new THREE.CylinderGeometry(0.35, 0.3, 0.85, 8);
+      const can = new THREE.Mesh(canGeo, Mat.metalGreen);
+      can.position.y = 0.425;
+      can.castShadow = true;
+      can.receiveShadow = true;
+      g.add(can);
+
+      // Rim
+      const rimGeo = new THREE.TorusGeometry(0.35, 0.04, 6, 8);
+      rimGeo.rotateX(Math.PI / 2);
+      const rim = new THREE.Mesh(rimGeo, Mat.metalRust);
+      rim.position.y = 0.85;
+      g.add(rim);
+
+      return { group: g, lidGroup: null };
+    }
+
+    function createTrashPileMesh() {
+      const g = new THREE.Group();
+      // Cardboard boxes
+      const box1Geo = new THREE.BoxGeometry(0.65, 0.5, 0.6);
+      const box1 = new THREE.Mesh(box1Geo, Mat.cardboard);
+      box1.position.set(-0.25, 0.25, 0);
+      box1.castShadow = true;
+      g.add(box1);
+
+      const box2Geo = new THREE.BoxGeometry(0.5, 0.4, 0.5);
+      const box2 = new THREE.Mesh(box2Geo, Mat.cardboard);
+      box2.position.set(0.3, 0.2, 0.1);
+      box2.rotation.y = 0.4;
+      g.add(box2);
+
+      // Bulging garbage bag
+      const bagGeo = new THREE.DodecahedronGeometry(0.32, 0);
+      const bag = new THREE.Mesh(bagGeo, Mat.trashBag);
+      bag.position.set(0.05, 0.55, -0.05);
+      bag.castShadow = true;
+      g.add(bag);
+
+      return { group: g, lidGroup: null };
+    }
+
+    function initContainers() {
+      // 5 Searchable containers across the level with guaranteed loot distribution
+      const defs = [
+        {
+          id: 1, x: 5.5, z: -0.2,
+          type: 'dumpster', colorMat: Mat.metalGreen,
+          loot: { bottles: 2, trash: 2, drinks: 0 },
+          label: 'Контейнер у стены'
+        },
+        {
+          id: 2, x: 18.0, z: -0.3,
+          type: 'can', colorMat: Mat.metalGreen,
+          loot: { bottles: 0, trash: 2, drinks: 1 },
+          label: 'Урны у переулка'
+        },
+        {
+          id: 3, x: 26.5, z: -0.25,
+          type: 'pile', colorMat: null,
+          loot: { bottles: 2, trash: 1, drinks: 0 },
+          label: 'Куча коробок и мусора'
+        },
+        {
+          id: 4, x: 31.0, z: -0.2,
+          type: 'dumpster', colorMat: Mat.metalBlue,
+          loot: { bottles: 2, trash: 0, drinks: 1 },
+          label: 'Синий контейнер'
+        },
+        {
+          id: 5, x: 38.0, z: -0.2,
+          type: 'dumpster', colorMat: Mat.metalOrange,
+          loot: { bottles: 2, trash: 2, drinks: 1 },
+          label: 'Большой бак у приёмки'
+        }
+      ];
+
+      defs.forEach(d => {
+        let m;
+        if (d.type === 'dumpster') {
+          m = createDumpsterMesh(d.colorMat);
+        } else if (d.type === 'can') {
+          m = createTrashCanMesh();
+        } else {
+          m = createTrashPileMesh();
+        }
+        m.group.position.set(d.x, 0, d.z);
+        scene.add(m.group);
+
+        containers.push({
+          id: d.id,
+          x: d.x,
+          z: d.z,
+          mesh: m.group,
+          lidGroup: m.lidGroup,
+          loot: d.loot,
+          searched: false,
+          searchProgress: 0,
+          label: d.label
+        });
+      });
+    }
+
+    /* =========================================================
+     * 7. PROJECTILES, PARTICLES & FLOATING TEXTS
+     * ========================================================= */
+    const projectiles = [];
+    const particles = [];
+    const drops = [];
+
+    function spawnProjectile(owner, type, x, y, facing) {
+      const isBottle = (type === 'bottle');
+      let mesh;
+
+      if (isBottle) {
+        mesh = new THREE.Group();
+        const bGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.35, 6);
+        const bMesh = new THREE.Mesh(bGeo, Mat.glassGreen);
+        bMesh.castShadow = true;
+        mesh.add(bMesh);
+
+        const neckGeo = new THREE.CylinderGeometry(0.035, 0.06, 0.16, 6);
+        const neck = new THREE.Mesh(neckGeo, Mat.glassGreen);
+        neck.position.y = 0.22;
+        mesh.add(neck);
+
+        const capGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.04, 6);
+        const cap = new THREE.Mesh(capGeo, Mat.bottleCap);
+        cap.position.y = 0.31;
+        mesh.add(cap);
+      } else {
+        // Trash / Can
+        mesh = new THREE.Group();
+        const canGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.22, 6);
+        const can = new THREE.Mesh(canGeo, Mat.canMetal);
+        can.castShadow = true;
+        mesh.add(can);
+      }
+
+      mesh.position.set(x, y, 0);
+      scene.add(mesh);
+
+      const vx = isBottle ? 13.5 * facing : 9.5 * facing;
+      const vy = isBottle ? 3.2 : 5.0;
+      const damage = isBottle ? 30 : 15;
+
+      projectiles.push({
+        owner,
+        type,
+        mesh,
+        x,
+        y,
+        vx,
+        vy,
+        damage,
+        rotSpeed: facing * (isBottle ? 15 : 10),
+        life: 3.0
+      });
+
+      if (isBottle) {
+        Sound.bottleThrow();
+      } else {
+        Sound.punchWhoosh();
+      }
+    }
+
+    function createGlassFragments(x, y) {
+      for (let i = 0; i < 7; i++) {
+        const geo = new THREE.TetrahedronGeometry(0.06 + Math.random() * 0.05);
+        const mesh = new THREE.Mesh(geo, Math.random() > 0.5 ? Mat.glassGreen : Mat.glassBrown);
+        mesh.position.set(x, y, 0);
+        scene.add(mesh);
+
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2.0 + Math.random() * 4.0;
+        particles.push({
+          mesh,
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed + 2.0,
+          rotX: Math.random() * 10,
+          rotY: Math.random() * 10,
+          life: 0.8,
+          maxLife: 0.8
+        });
+      }
+    }
+
+    function createDustPuff(x, y) {
+      for (let i = 0; i < 6; i++) {
+        const geo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+        const mesh = new THREE.Mesh(geo, Mat.curbStone);
+        mesh.position.set(x, y, 0);
+        scene.add(mesh);
+
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1.0 + Math.random() * 2.5;
+        particles.push({
+          mesh,
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed + 1.5,
+          rotX: Math.random() * 8,
+          rotY: Math.random() * 8,
+          life: 0.6,
+          maxLife: 0.6
+        });
+      }
+    }
+
+    function spawnGroundDrop(type, x, y) {
+      let mesh;
+      if (type === 'bottle') {
+        mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.35, 6), Mat.glassGreen);
+      } else if (type === 'trash') {
+        mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.22, 6), Mat.canMetal);
+      } else {
+        mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.3, 6), Mat.medicineAmber);
+      }
+      mesh.position.set(x, y, 0);
+      scene.add(mesh);
+
+      drops.push({
+        type,
+        mesh,
+        x,
+        y: y + 0.3,
+        baseY: 0.25,
+        time: Math.random() * 10,
+        active: true
+      });
+    }
+
+    function showFloatingText(text, worldX, worldY, color = '#fff') {
+      const el = document.createElement('div');
+      el.className = 'floating-text';
+      el.innerText = text;
+      el.style.color = color;
+
+      // Project world coordinates to 2D screen space
+      const screenPos = toScreenPosition(worldX, worldY);
+      el.style.left = screenPos.x + 'px';
+      el.style.top = screenPos.y + 'px';
+
+      document.getElementById('floating-container').appendChild(el);
+      setTimeout(() => {
+        if (el.parentNode) el.parentNode.removeChild(el);
+      }, 850);
+    }
+
+    function toScreenPosition(wx, wy) {
+      const v = new THREE.Vector3(wx, wy, 0);
+      v.project(camera);
+      const halfWidth = window.innerWidth / 2;
+      const halfHeight = window.innerHeight / 2;
+      return {
+        x: (v.x * halfWidth) + halfWidth,
+        y: -(v.y * halfHeight) + halfHeight
+      };
+    }
+
+    /* =========================================================
+     * 8. PLAYER CHARACTER & COMBAT CONTROLLER
+     * ========================================================= */
+    const player = {
+      x: 2.0,
+      y: 0.0,
+      vx: 0.0,
+      vy: 0.0,
+      facing: 1, // 1: right, -1: left
+      isGrounded: true,
+      health: 100,
+      maxHealth: 100,
+      invulnTimer: 0.0,
+
+      // Inventory
+      inventory: {
+        bottles: 2,
+        trash: 3,
+        drinks: 0,
+        selectedWeapon: 'bottle' // 'bottle' or 'trash'
+      },
+
+      // States
+      state: 'idle', // idle, walk, jump, punch, throw, search, drink, hurt, defeat, victory
+      stateTimer: 0.0,
+      coyoteTimer: 0.0,
+      jumpBufferTimer: 0.0,
+
+      // Searching state
+      activeContainer: null,
+
+      // Rig
+      rig: null
+    };
+
+    function initPlayer() {
+      player.rig = createCharacter({
+        coatMat: Mat.jacketBrown,
+        sweaterMat: Mat.sweaterMustard,
+        pantsMat: Mat.pantsDark,
+        skinMat: Mat.skin,
+        hatType: 'beanie',
+        hatMat: Mat.beanieRed,
+        hasBeard: true,
+        beardMat: Mat.beardGray,
+        hasPatches: true,
+        hasBackpack: true,
+        scale: 1.0
+      });
+      player.rig.root.position.set(player.x, player.y, 0);
+    }
+
+    /* =========================================================
+     * 9. ENEMIES ROSTER & BEHAVIOR SYSTEM
+     * ========================================================= */
+    const enemies = [];
+
+    function initEnemies() {
+      // 5 distinct enemies across the 3 zones
+      const enemyConfigs = [
+        // Zone 1: Thin rival in faded blue coat (X = 11.0)
+        {
+          id: 1, x: 11.0, type: 'brawler', hp: 45, maxHp: 45,
+          name: 'Тощий',
+          speed: 2.4, punchDmg: 12,
+          coatMat: Mat.coatBlue, hatType: 'none', hasBeard: true, beardMat: Mat.beardBrown,
+          scale: 0.95
+        },
+        // Zone 2 - Encounter 1: Stocky rival in olive jacket (X = 20.5)
+        {
+          id: 2, x: 20.5, type: 'brawler', hp: 50, maxHp: 50,
+          name: 'Крепыш',
+          speed: 2.3, punchDmg: 14,
+          coatMat: Mat.coatOlive, hatType: 'cap', hasBeard: false,
+          scale: 1.05
+        },
+        // Zone 2 - Encounter 1: Rival with knitted cap (Thrower, X = 23.5)
+        {
+          id: 3, x: 23.5, type: 'thrower', hp: 45, maxHp: 45,
+          name: 'Меткий',
+          speed: 2.0, punchDmg: 10,
+          coatMat: Mat.shirtRedPlaid, hatType: 'beanie', hatMat: Mat.beanieBlue, hasBeard: true, beardMat: Mat.beardDark,
+          scale: 0.98
+        },
+        // Zone 2 - Encounter 2: Aggressive rival in charcoal coat (X = 33.0)
+        {
+          id: 4, x: 33.0, type: 'brawler', hp: 55, maxHp: 55,
+          name: 'Хмурый',
+          speed: 2.6, punchDmg: 15,
+          coatMat: Mat.coatCharcoal, hatType: 'beanie', hatMat: Mat.beanieBlue, hasBeard: true, beardMat: Mat.beardGray,
+          scale: 1.02
+        },
+        // Zone 3 - Final Rival / Boss: Imposing rival in dark red coat (X = 42.0)
+        {
+          id: 5, x: 42.0, type: 'boss', hp: 110, maxHp: 110,
+          name: 'Вася «Кирпич»',
+          speed: 2.8, punchDmg: 22,
+          coatMat: Mat.coatBossRed, hatType: 'none', hasBeard: true, beardMat: Mat.beardDark,
+          scale: 1.25, isBoss: true
+        }
+      ];
+
+      enemyConfigs.forEach(cfg => {
+        const rig = createCharacter({
+          coatMat: cfg.coatMat,
+          sweaterMat: Mat.pantsDark,
+          pantsMat: Mat.pantsDark,
+          skinMat: cfg.isBoss ? Mat.skinDark : Mat.skin,
+          hatType: cfg.hatType,
+          hatMat: cfg.hatMat,
+          hasBeard: cfg.hasBeard,
+          beardMat: cfg.beardMat,
+          hasPatches: false,
+          hasBackpack: false,
+          scale: cfg.scale,
+          isBoss: cfg.isBoss
+        });
+
+        enemies.push({
+          id: cfg.id,
+          name: cfg.name,
+          type: cfg.type,
+          x: cfg.x,
+          y: 0.0,
+          vx: 0.0,
+          vy: 0.0,
+          facing: -1,
+          hp: cfg.hp,
+          maxHp: cfg.maxHp,
+          speed: cfg.speed,
+          punchDmg: cfg.punchDmg,
+          isBoss: !!cfg.isBoss,
+
+          // AI State
+          aiState: 'patrol', // patrol, approach, windup, attack, recover, hurt, defeated
+          stateTimer: 0.0,
+          attackCooldown: 1.0 + Math.random() * 0.5,
+          hitReactTimer: 0.0,
+          defeated: false,
+          healthBarTimer: 0.0,
+
+          // Rig
+          rig
+        });
+      });
+    }
+
+    /* =========================================================
+     * 10. INPUT SYSTEM
+     * ========================================================= */
+    const keys = {
+      left: false,
+      right: false,
+      jump: false,
+      punch: false,
+      throw: false,
+      search: false,
+      heal: false
+    };
+
+    window.addEventListener('keydown', e => {
+      // Prevent browser scrolling and default actions for game keys
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) {
+        e.preventDefault();
+      }
+
+      initAudio();
+
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.left = true;
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.right = true;
+      if (e.code === 'Space') {
+        keys.jump = true;
+        player.jumpBufferTimer = 0.14;
+      }
+      if (e.code === 'KeyJ') handlePunchInput();
+      if (e.code === 'KeyK') handleThrowInput();
+      if (e.code === 'Tab') switchWeapon();
+      if (e.code === 'KeyE') keys.search = true;
+      if (e.code === 'KeyQ') handleHealInput();
+      if (e.code === 'KeyR') handleRestartInput();
+    });
+
+    window.addEventListener('keyup', e => {
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.left = false;
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.right = false;
+      if (e.code === 'Space') keys.jump = false;
+      if (e.code === 'KeyE') keys.search = false;
+    });
+
+    window.addEventListener('blur', () => {
+      // Clear held keys on blur
+      Object.keys(keys).forEach(k => keys[k] = false);
+    });
+
+    function switchWeapon() {
+      player.inventory.selectedWeapon = (player.inventory.selectedWeapon === 'bottle') ? 'trash' : 'bottle';
+      updateHudInventory();
+      Sound.punchWhoosh();
+    }
+
+    function handlePunchInput() {
+      if (['defeat', 'victory', 'search', 'drink'].includes(player.state)) return;
+      if (player.state === 'punch') return; // already punching
+
+      player.state = 'punch';
+      player.stateTimer = 0.0;
+      Sound.punchWhoosh();
+    }
+
+    function handleThrowInput() {
+      if (['defeat', 'victory', 'search', 'drink'].includes(player.state)) return;
+      if (player.state === 'throw') return;
+
+      const weapon = player.inventory.selectedWeapon;
+      const count = (weapon === 'bottle') ? player.inventory.bottles : player.inventory.trash;
+
+      if (count <= 0) {
+        showFloatingText('НЕТ ПАТРОНОВ!', player.x, player.y + 1.8, '#ff8888');
+        return;
+      }
+
+      player.state = 'throw';
+      player.stateTimer = 0.0;
+    }
+
+    function handleHealInput() {
+      if (['defeat', 'victory', 'drink'].includes(player.state)) return;
+
+      if (player.inventory.drinks <= 0) {
+        showFloatingText('НЕТ НАСТОЙКИ!', player.x, player.y + 1.8, '#ff9999');
+        return;
+      }
+      if (player.health >= player.maxHealth) {
+        showFloatingText('ЗДОРОВЬЕ ПОЛНОЕ!', player.x, player.y + 1.8, '#f5a623');
+        return;
+      }
+
+      // Consume 1 drink
+      player.inventory.drinks--;
+      const restored = Math.min(30, player.maxHealth - player.health);
+      player.health += restored;
+
+      player.state = 'drink';
+      player.stateTimer = 0.0;
+      Sound.drink();
+
+      showFloatingText('+' + restored + ' HP', player.x, player.y + 1.9, '#4caf50');
+      updateHudHealth();
+      updateHudInventory();
+    }
+
+    function handleRestartInput() {
+      const vModal = document.getElementById('victory-modal');
+      const dModal = document.getElementById('defeat-modal');
+      if (vModal.style.display !== 'none' || dModal.style.display !== 'none') {
+        restartGame();
+      }
+    }
+
+    /* =========================================================
+     * 11. GAME STATE & FLOW CONTROLLER
+     * ========================================================= */
+    let gameState = 'start'; // start, play, defeat, victory
+    let levelStartTime = 0;
+    let cameraShake = 0.0;
+    let hitStopTimer = 0.0;
+    let bossFightActive = false;
+
+    function startGame() {
+      initAudio();
+      document.getElementById('start-modal').style.display = 'none';
+      document.getElementById('hud').style.display = 'block';
+      gameState = 'play';
+      levelStartTime = performance.now();
+      updateHudHealth();
+      updateHudInventory();
+    }
+
+    function restartGame() {
+      document.getElementById('victory-modal').style.display = 'none';
+      document.getElementById('defeat-modal').style.display = 'none';
+      document.getElementById('hud').style.display = 'block';
+
+      // Reset Player
+      player.x = 2.0;
+      player.y = 0.0;
+      player.vx = 0.0;
+      player.vy = 0.0;
+      player.facing = 1;
+      player.health = 100;
+      player.invulnTimer = 0.0;
+      player.state = 'idle';
+      player.stateTimer = 0.0;
+      player.inventory.bottles = 2;
+      player.inventory.trash = 3;
+      player.inventory.drinks = 0;
+      player.inventory.selectedWeapon = 'bottle';
+
+      // Reset Containers
+      containers.forEach(c => {
+        c.searched = false;
+        c.searchProgress = 0;
+        if (c.lidGroup) c.lidGroup.rotation.x = 0;
+      });
+
+      // Reset Enemies
+      enemies.forEach((e, idx) => {
+        const defaultPositions = [11.0, 20.5, 23.5, 33.0, 42.0];
+        e.x = defaultPositions[idx];
+        e.y = 0.0;
+        e.vx = 0.0;
+        e.vy = 0.0;
+        e.hp = e.maxHp;
+        e.defeated = false;
+        e.aiState = 'patrol';
+        e.stateTimer = 0;
+        e.attackCooldown = 1.0;
+        e.hitReactTimer = 0;
+        e.rig.root.visible = true;
+      });
+
+      // Clear projectiles, particles, drops
+      projectiles.forEach(p => scene.remove(p.mesh));
+      projectiles.length = 0;
+      particles.forEach(p => scene.remove(p.mesh));
+      particles.length = 0;
+      drops.forEach(d => scene.remove(d.mesh));
+      drops.length = 0;
+
+      bossFightActive = false;
+      document.getElementById('boss-hud').style.display = 'none';
+
+      gameState = 'play';
+      levelStartTime = performance.now();
+      updateHudHealth();
+      updateHudInventory();
+    }
+
+    function triggerVictory() {
+      gameState = 'victory';
+      player.state = 'victory';
+      player.stateTimer = 0.0;
+      Sound.victory();
+
+      const elapsedSec = Math.floor((performance.now() - levelStartTime) / 1000);
+      const minutes = Math.floor(elapsedSec / 60);
+      const seconds = elapsedSec % 60;
+      const timeStr = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+
+      const remainingBottles = player.inventory.bottles;
+      const score = 1000 + remainingBottles * 150 + Math.max(0, 300 - elapsedSec) * 2;
+
+      document.getElementById('stat-time').innerText = timeStr;
+      document.getElementById('stat-enemies').innerText = '5 / 5';
+      document.getElementById('stat-bottles').innerText = remainingBottles + ' шт. (+ ' + (remainingBottles * 150) + ' очков)';
+      document.getElementById('stat-score').innerText = score + ' очков';
+
+      setTimeout(() => {
+        document.getElementById('victory-modal').style.display = 'flex';
+      }, 700);
+    }
+
+    function triggerDefeat() {
+      gameState = 'defeat';
+      player.state = 'defeat';
+      player.stateTimer = 0.0;
+      Sound.defeat();
+
+      setTimeout(() => {
+        document.getElementById('defeat-modal').style.display = 'flex';
+      }, 1000);
+    }
+
+    /* =========================================================
+     * 12. PHYSICS & COLLISION SOLVER
+     * ========================================================= */
+    const GRAVITY = -26.0;
+    const MOVE_SPEED = 5.2;
+
+    function updatePlayerPhysics(dt) {
+      if (['defeat', 'victory'].includes(player.state)) return;
+
+      // Invulnerability decay
+      if (player.invulnTimer > 0) {
+        player.invulnTimer -= dt;
+        player.rig.root.visible = (Math.floor(player.invulnTimer * 15) % 2 === 0);
+      } else {
+        player.rig.root.visible = true;
+      }
+
+      // Coyote time & Jump buffer
+      if (player.isGrounded) {
+        player.coyoteTimer = 0.12;
+      } else {
+        player.coyoteTimer -= dt;
+      }
+      if (player.jumpBufferTimer > 0) player.jumpBufferTimer -= dt;
+
+      // Handle Horizontal Movement
+      let moveDir = 0;
+      if (player.state !== 'drink' && player.state !== 'search') {
+        if (keys.left) moveDir -= 1;
+        if (keys.right) moveDir += 1;
+      }
+
+      if (moveDir !== 0) {
+        player.facing = moveDir;
+        player.vx = moveDir * MOVE_SPEED;
+        if (player.isGrounded && player.state === 'idle') {
+          player.state = 'walk';
+        }
+      } else {
+        player.vx *= Math.exp(-14 * dt);
+        if (Math.abs(player.vx) < 0.1) player.vx = 0;
+        if (player.isGrounded && player.state === 'walk') {
+          player.state = 'idle';
+        }
+      }
+
+      // Handle Jump
+      if (player.jumpBufferTimer > 0 && player.coyoteTimer > 0 && player.state !== 'drink' && player.state !== 'search') {
+        player.vy = 10.2;
+        player.isGrounded = false;
+        player.coyoteTimer = 0;
+        player.jumpBufferTimer = 0;
+        player.state = 'jump';
+        Sound.punchWhoosh();
+      }
+
+      // Apply Gravity
+      player.vy += GRAVITY * dt;
+
+      // Predict new position
+      let newX = player.x + player.vx * dt;
+      let newY = player.y + player.vy * dt;
+
+      // Collision against level boundaries (Walls at X = 0.8 and X = 50.8)
+      if (newX < 0.85) { newX = 0.85; player.vx = 0; }
+      if (newX > 50.2) { newX = 50.2; player.vx = 0; }
+
+      // Obstacle & Ground Collisions
+      let groundY = 0.0;
+      const playerWidth = 0.55;
+
+      obstacles.forEach(obs => {
+        // Check horizontal overlap
+        if (newX + playerWidth / 2 > obs.xMin && newX - playerWidth / 2 < obs.xMax) {
+          // Landing on top
+          if (player.y >= obs.yMax - 0.05 && newY <= obs.yMax) {
+            groundY = Math.max(groundY, obs.yMax);
+          } else if (player.y < obs.yMax - 0.05) {
+            // Hitting side of obstacle
+            if (player.x < obs.xMin) {
+              newX = obs.xMin - playerWidth / 2;
+            } else if (player.x > obs.xMax) {
+              newX = obs.xMax + playerWidth / 2;
+            }
+          }
+        }
+      });
+
+      // Ground resolution
+      if (newY <= groundY) {
+        newY = groundY;
+        player.vy = 0;
+        if (!player.isGrounded) {
+          createDustPuff(newX, newY);
+          if (player.state === 'jump') {
+            player.state = (Math.abs(player.vx) > 0.2) ? 'walk' : 'idle';
+          }
+        }
+        player.isGrounded = true;
+      } else {
+        player.isGrounded = false;
+        if (player.state !== 'punch' && player.state !== 'throw' && player.state !== 'hurt' && player.state !== 'drink') {
+          player.state = 'jump';
+        }
+      }
+
+      player.x = newX;
+      player.y = newY;
+    }
+
+    /* =========================================================
+     * 13. COMBAT, SEARCHING & INTERACTION LOGIC
+     * ========================================================= */
+    function updateCombatAndInteractions(dt) {
+      if (gameState !== 'play') return;
+
+      // 1. Player Punch Attack Window
+      if (player.state === 'punch') {
+        player.stateTimer += dt;
+        // Active damage frame window between 0.08s and 0.22s
+        if (player.stateTimer >= 0.08 && player.stateTimer <= 0.22) {
+          const punchHitboxX = player.x + player.facing * 0.85;
+          const punchHitboxY = player.y + 0.95;
+          const punchRadius = 1.05;
+
+          enemies.forEach(e => {
+            if (e.defeated || e.hasBeenHitByThisPunch) return;
+            const dist = Math.hypot(e.x - punchHitboxX, (e.y + 0.95) - punchHitboxY);
+            if (dist < punchRadius) {
+              // Valid punch hit!
+              e.hasBeenHitByThisPunch = true;
+              applyDamageToEnemy(e, 18, player.facing);
+              Sound.punchHit();
+              hitStopTimer = 0.06;
+              cameraShake = 0.16;
+            }
+          });
+        }
+
+        if (player.stateTimer >= 0.35) {
+          player.state = (Math.abs(player.vx) > 0.2) ? 'walk' : 'idle';
+          enemies.forEach(e => e.hasBeenHitByThisPunch = false);
+        }
+      }
+
+      // 2. Player Throw Release Frame
+      if (player.state === 'throw') {
+        player.stateTimer += dt;
+        if (player.stateTimer >= 0.14 && !player.hasReleasedThrow) {
+          player.hasReleasedThrow = true;
+          const weapon = player.inventory.selectedWeapon;
+          if (weapon === 'bottle' && player.inventory.bottles > 0) {
+            player.inventory.bottles--;
+            spawnProjectile('player', 'bottle', player.x + player.facing * 0.45, player.y + 1.25, player.facing);
+          } else if (weapon === 'trash' && player.inventory.trash > 0) {
+            player.inventory.trash--;
+            spawnProjectile('player', 'trash', player.x + player.facing * 0.45, player.y + 1.25, player.facing);
+          }
+          updateHudInventory();
+        }
+
+        if (player.stateTimer >= 0.32) {
+          player.state = (Math.abs(player.vx) > 0.2) ? 'walk' : 'idle';
+          player.hasReleasedThrow = false;
+        }
+      }
+
+      // 3. Player Drinking State
+      if (player.state === 'drink') {
+        player.stateTimer += dt;
+        if (player.stateTimer >= 0.6) {
+          player.state = 'idle';
+        }
+      }
+
+      // 4. Searching Dumpsters / Containers
+      handleContainerSearching(dt);
+
+      // 5. Recycling Station & Victory Check
+      handleRecyclingStationInteraction();
+    }
+
+    function applyDamageToEnemy(e, dmg, hitDirection) {
+      e.hp -= dmg;
+      e.hitReactTimer = 0.25;
+      e.healthBarTimer = 3.5;
+      e.vx = hitDirection * 3.5;
+
+      // Interrupt enemy windup if they were winding up!
+      if (e.aiState === 'windup') {
+        e.aiState = 'recover';
+        e.stateTimer = 0.3;
+      }
+
+      showFloatingText('-' + dmg, e.x, e.y + 1.9, '#ff4d4d');
+      createDustPuff(e.x + hitDirection * 0.2, e.y + 1.0);
+
+      // Boss HUD health update
+      if (e.isBoss) {
+        bossFightActive = true;
+        document.getElementById('boss-hud').style.display = 'flex';
+        const bossPct = Math.max(0, (e.hp / e.maxHp) * 100);
+        document.getElementById('boss-hp-fill').style.width = bossPct + '%';
+      }
+
+      if (e.hp <= 0) {
+        e.hp = 0;
+        e.defeated = true;
+        e.aiState = 'defeated';
+        Sound.enemyDefeat();
+        showFloatingText('НОКАУТ!', e.x, e.y + 2.1, '#ffd700');
+
+        // Drop ammunition upon defeat
+        if (e.isBoss) {
+          spawnGroundDrop('bottle', e.x - 0.4, 0);
+          spawnGroundDrop('bottle', e.x + 0.4, 0);
+          spawnGroundDrop('drink', e.x, 0);
+        } else {
+          spawnGroundDrop(Math.random() > 0.5 ? 'bottle' : 'trash', e.x, 0);
+        }
+      }
+    }
+
+    function applyDamageToPlayer(dmg, hitDirection) {
+      if (player.invulnTimer > 0 || ['defeat', 'victory'].includes(player.state)) return;
+
+      player.health -= dmg;
+      player.invulnTimer = 0.7; // 0.7s invulnerability
+      player.vx = hitDirection * 4.0;
+      player.vy = 2.8;
+      cameraShake = 0.22;
+      Sound.hurt();
+
+      // Cancel search if taking damage
+      if (player.state === 'search') {
+        player.state = 'idle';
+      }
+
+      showFloatingText('-' + dmg, player.x, player.y + 1.8, '#ff3b3b');
+      updateHudHealth();
+
+      if (player.health <= 0) {
+        player.health = 0;
+        updateHudHealth();
+        triggerDefeat();
+      }
+    }
+
+    function handleContainerSearching(dt) {
+      const promptEl = document.getElementById('interaction-prompt');
+      const promptLabel = document.getElementById('prompt-label');
+      const promptBar = document.getElementById('prompt-progress-bar');
+      const promptFill = document.getElementById('prompt-progress-fill');
+
+      let nearbyContainer = null;
+      for (const c of containers) {
+        if (!c.searched && Math.abs(player.x - c.x) < 1.7) {
+          nearbyContainer = c;
+          break;
+        }
+      }
+
+      if (nearbyContainer) {
+        promptEl.style.display = 'flex';
+        promptLabel.innerText = 'E — Обыскать';
+        promptBar.style.display = 'block';
+
+        if (keys.search && ['idle', 'walk', 'search'].includes(player.state)) {
+          player.state = 'search';
+          player.vx = 0;
+          nearbyContainer.searchProgress += dt;
+          const pct = Math.min(100, (nearbyContainer.searchProgress / 1.0) * 100);
+          promptFill.style.width = pct + '%';
+
+          if (Math.random() < 0.25) Sound.searchRustle();
+
+          // Container completed!
+          if (nearbyContainer.searchProgress >= 1.0) {
+            nearbyContainer.searched = true;
+            player.state = 'idle';
+
+            // Visual change on container
+            if (nearbyContainer.lidGroup) {
+              nearbyContainer.lidGroup.rotation.x = -Math.PI * 0.45;
+            }
+
+            // Distribute guaranteed loot
+            const l = nearbyContainer.loot;
+            player.inventory.bottles += l.bottles;
+            player.inventory.trash += l.trash;
+            player.inventory.drinks += l.drinks;
+
+            Sound.pickup();
+            let lootText = '';
+            if (l.bottles) lootText += `+${l.bottles} Бутылки `;
+            if (l.trash) lootText += `+${l.trash} Мусор `;
+            if (l.drinks) lootText += `+${l.drinks} Настойка`;
+
+            showFloatingText(lootText, nearbyContainer.x, 1.8, '#f5a623');
+            updateHudInventory();
+
+            promptEl.style.display = 'none';
+          }
+        } else {
+          nearbyContainer.searchProgress = 0;
+          promptFill.style.width = '0%';
+          if (player.state === 'search') player.state = 'idle';
+        }
+      } else {
+        if (player.state === 'search') player.state = 'idle';
+        // Only hide if not at recycling station
+        if (Math.abs(player.x - 48.0) >= 2.0) {
+          promptEl.style.display = 'none';
+        }
+      }
+    }
+
+    function handleRecyclingStationInteraction() {
+      // Station is around X = 48.0
+      if (Math.abs(player.x - 48.0) < 2.0) {
+        const boss = enemies.find(e => e.isBoss);
+        const promptEl = document.getElementById('interaction-prompt');
+        const promptLabel = document.getElementById('prompt-label');
+        const promptBar = document.getElementById('prompt-progress-bar');
+
+        promptEl.style.display = 'flex';
+        promptBar.style.display = 'none';
+
+        if (boss && !boss.defeated) {
+          promptLabel.innerText = 'Сначала одолейте Васю «Кирпича»!';
+          promptLabel.style.color = '#ff6b6b';
+        } else {
+          promptLabel.innerText = 'E — Сдать тару в приёмку!';
+          promptLabel.style.color = '#69f0ae';
+
+          if (keys.search) {
+            triggerVictory();
+          }
+        }
+      }
+    }
+
+    /* =========================================================
+     * 14. ENEMY AI BEHAVIOR UPDATE
+     * ========================================================= */
+    function updateEnemies(dt) {
+      enemies.forEach(e => {
+        if (e.defeated) {
+          // Collapse animation
+          e.y = THREE.MathUtils.lerp(e.y, 0, dt * 10);
+          e.vx = 0;
+          return;
+        }
+
+        const distToPlayer = Math.abs(player.x - e.x);
+        e.facing = (player.x > e.x) ? 1 : -1;
+
+        // Boss trigger
+        if (e.isBoss && distToPlayer < 9.0) {
+          bossFightActive = true;
+          document.getElementById('boss-hud').style.display = 'flex';
+        }
+
+        // Apply knockback friction
+        e.vx *= Math.exp(-10 * dt);
+        e.x += e.vx * dt;
+
+        // Hit reaction stun
+        if (e.hitReactTimer > 0) {
+          e.hitReactTimer -= dt;
+          return;
+        }
+
+        // Behavior state machine
+        if (distToPlayer > 12.0) {
+          // Idle / sleep
+          e.aiState = 'patrol';
+          return;
+        }
+
+        e.attackCooldown -= dt;
+
+        if (e.type === 'brawler' || e.type === 'boss') {
+          // BRAWLER AI: Approach player, wind up punch, strike
+          if (e.aiState === 'patrol' || e.aiState === 'approach') {
+            if (distToPlayer > 1.25) {
+              e.aiState = 'approach';
+              e.x += e.facing * e.speed * dt;
+            } else {
+              // Within melee range!
+              if (e.attackCooldown <= 0) {
+                e.aiState = 'windup';
+                e.stateTimer = e.isBoss ? 0.42 : 0.48; // Telegraphed windup
+                showFloatingText('!', e.x, e.y + 1.8, '#ff9900');
+              } else {
+                e.aiState = 'recover';
+              }
+            }
+          } else if (e.aiState === 'windup') {
+            e.stateTimer -= dt;
+            if (e.stateTimer <= 0) {
+              e.aiState = 'attack';
+              e.stateTimer = 0.16;
+              Sound.punchWhoosh();
+            }
+          } else if (e.aiState === 'attack') {
+            e.stateTimer -= dt;
+            // Strike frame
+            if (distToPlayer < 1.45) {
+              applyDamageToPlayer(e.punchDmg, e.facing);
+              Sound.punchHit();
+            }
+            if (e.stateTimer <= 0) {
+              e.aiState = 'recover';
+              e.attackCooldown = 1.1 + Math.random() * 0.6;
+            }
+          } else if (e.aiState === 'recover') {
+            if (e.attackCooldown <= 0) {
+              e.aiState = 'approach';
+            }
+          }
+        } else if (e.type === 'thrower') {
+          // THROWER AI: Maintain range (4.5 - 6.5 units), throw cans
+          const idealDist = 5.2;
+          if (e.aiState === 'patrol' || e.aiState === 'approach') {
+            if (distToPlayer < 3.8) {
+              // Too close, back away!
+              e.x -= e.facing * e.speed * dt;
+            } else if (distToPlayer > 6.8) {
+              // Too far, approach!
+              e.x += e.facing * e.speed * dt;
+            } else {
+              // Perfect range to wind up throw
+              if (e.attackCooldown <= 0) {
+                e.aiState = 'windup';
+                e.stateTimer = 0.6; // Telegraph arm raise
+                showFloatingText('🥫!', e.x, e.y + 1.8, '#ffd700');
+              }
+            }
+          } else if (e.aiState === 'windup') {
+            e.stateTimer -= dt;
+            if (e.stateTimer <= 0) {
+              // Release projectile
+              spawnProjectile('enemy', 'trash', e.x + e.facing * 0.4, e.y + 1.2, e.facing);
+              e.aiState = 'recover';
+              e.attackCooldown = 2.4 + Math.random() * 0.8;
+            }
+          } else if (e.aiState === 'recover') {
+            if (e.attackCooldown <= 0) {
+              e.aiState = 'approach';
+            }
+          }
+        }
+
+        // Clamp enemies to level boundaries
+        e.x = THREE.MathUtils.clamp(e.x, 1.2, 49.5);
+      });
+    }
+
+    /* =========================================================
+     * 15. PROJECTILES, PARTICLES & DROPS PHYSICS
+     * ========================================================= */
+    function updateProjectiles(dt) {
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        p.life -= dt;
+        p.vy += GRAVITY * dt;
+
+        // Substepped swept check for rock-solid collision
+        const steps = 3;
+        const subDt = dt / steps;
+        let destroyed = false;
+
+        for (let s = 0; s < steps; s++) {
+          p.x += p.vx * subDt;
+          p.y += p.vy * subDt;
+
+          // Ground collision
+          if (p.y <= 0.15) {
+            destroyed = true;
+            if (p.type === 'bottle') {
+              createGlassFragments(p.x, 0.15);
+              Sound.glassBreak();
+            } else {
+              createDustPuff(p.x, 0.15);
+              Sound.trashHit();
+            }
+            break;
+          }
+
+          // Owner check & Target collision
+          if (p.owner === 'player') {
+            for (const e of enemies) {
+              if (e.defeated) continue;
+              if (Math.hypot(e.x - p.x, (e.y + 0.95) - p.y) < 0.85) {
+                destroyed = true;
+                applyDamageToEnemy(e, p.damage, Math.sign(p.vx));
+                if (p.type === 'bottle') {
+                  createGlassFragments(p.x, p.y);
+                  Sound.glassBreak();
+                } else {
+                  createDustPuff(p.x, p.y);
+                  Sound.trashHit();
+                }
+                cameraShake = 0.18;
+                break;
+              }
+            }
+          } else if (p.owner === 'enemy') {
+            // Hit player
+            if (Math.hypot(player.x - p.x, (player.y + 0.95) - p.y) < 0.75) {
+              destroyed = true;
+              applyDamageToPlayer(14, Math.sign(p.vx));
+              createDustPuff(p.x, p.y);
+              Sound.trashHit();
+              break;
+            }
+          }
+
+          if (destroyed) break;
+        }
+
+        if (destroyed || p.life <= 0) {
+          scene.remove(p.mesh);
+          projectiles.splice(i, 1);
+        } else {
+          p.mesh.position.set(p.x, p.y, 0);
+          p.mesh.rotation.z += p.rotSpeed * dt;
+        }
+      }
+
+      // Update Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const pt = particles[i];
+        pt.life -= dt;
+        pt.vy += GRAVITY * 0.8 * dt;
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+
+        if (pt.y <= 0.05) {
+          pt.y = 0.05;
+          pt.vy *= -0.3;
+          pt.vx *= 0.6;
+        }
+
+        pt.mesh.position.set(pt.x, pt.y, 0);
+        pt.mesh.rotation.x += pt.rotX * dt;
+        pt.mesh.rotation.y += pt.rotY * dt;
+        const scale = pt.life / pt.maxLife;
+        pt.mesh.scale.set(scale, scale, scale);
+
+        if (pt.life <= 0) {
+          scene.remove(pt.mesh);
+          particles.splice(i, 1);
+        }
+      }
+
+      // Update Collectible Drops on Ground
+      for (let i = drops.length - 1; i >= 0; i--) {
+        const d = drops[i];
+        d.time += dt * 3;
+        d.mesh.position.y = d.baseY + Math.sin(d.time) * 0.08;
+        d.mesh.rotation.y += dt * 2.5;
+
+        // Player pickup check
+        if (Math.hypot(player.x - d.x, player.y - d.y) < 1.1) {
+          if (d.type === 'bottle') {
+            player.inventory.bottles++;
+            showFloatingText('+1 Бутылка', player.x, player.y + 1.8, '#69f0ae');
+          } else if (d.type === 'trash') {
+            player.inventory.trash++;
+            showFloatingText('+1 Мусор', player.x, player.y + 1.8, '#e5d5be');
+          } else {
+            player.inventory.drinks++;
+            showFloatingText('+1 Настойка', player.x, player.y + 1.8, '#ffd700');
+          }
+          Sound.pickup();
+          updateHudInventory();
+          scene.remove(d.mesh);
+          drops.splice(i, 1);
+        }
+      }
+    }
+
+    /* =========================================================
+     * 16. ANIMATIONS & PROCEDURAL RIG POSING
+     * ========================================================= */
+    let animClock = 0;
+
+    function animateCharacters(dt) {
+      animClock += dt;
+
+      // 1. Animate Player Character
+      animatePlayerRig(animClock);
+
+      // 2. Animate Enemies
+      enemies.forEach(e => {
+        animateEnemyRig(e, animClock);
+      });
+    }
+
+    function animatePlayerRig(t) {
+      const rig = player.rig;
+      rig.root.position.set(player.x, player.y, 0);
+      rig.flipGroup.rotation.y = (player.facing === 1) ? 0 : Math.PI;
+
+      const pState = player.state;
+
+      // Reset base rotations
+      rig.torso.rotation.set(0, 0, 0);
+      rig.torso.position.y = 0.35;
+      rig.headGroup.rotation.set(0, 0, 0);
+      rig.leftArmGroup.rotation.set(0, 0, 0);
+      rig.rightArmGroup.rotation.set(0, 0, 0);
+      rig.leftForearmGroup.rotation.set(0, 0, 0);
+      rig.rightForearmGroup.rotation.set(0, 0, 0);
+      rig.leftLegGroup.rotation.set(0, 0, 0);
+      rig.rightLegGroup.rotation.set(0, 0, 0);
+      rig.leftKneeGroup.rotation.set(0, 0, 0);
+      rig.rightKneeGroup.rotation.set(0, 0, 0);
+
+      if (pState === 'idle') {
+        // Subtle breathing & idle sway
+        const breath = Math.sin(t * 3.5);
+        rig.torso.position.y = 0.35 + breath * 0.02;
+        rig.headGroup.rotation.x = breath * 0.04;
+        rig.leftArmGroup.rotation.x = Math.sin(t * 2.0) * 0.08;
+        rig.rightArmGroup.rotation.x = -Math.sin(t * 2.0) * 0.08;
+      } else if (pState === 'walk') {
+        // Walking cycle
+        const wSpeed = 11.5;
+        const walkCycle = Math.sin(t * wSpeed);
+        const bob = Math.abs(Math.sin(t * wSpeed)) * 0.06;
+
+        rig.torso.position.y = 0.35 + bob;
+        rig.torso.rotation.z = Math.sin(t * wSpeed) * 0.04;
+
+        // Legs
+        rig.leftLegGroup.rotation.z = walkCycle * 0.55;
+        rig.rightLegGroup.rotation.z = -walkCycle * 0.55;
+        rig.leftKneeGroup.rotation.z = Math.max(0, -walkCycle * 0.7);
+        rig.rightKneeGroup.rotation.z = Math.max(0, walkCycle * 0.7);
+
+        // Arms swing oppositely
+        rig.leftArmGroup.rotation.z = -walkCycle * 0.45;
+        rig.rightArmGroup.rotation.z = walkCycle * 0.45;
+      } else if (pState === 'jump') {
+        // Legs tucked, arms raised
+        rig.leftLegGroup.rotation.z = 0.45;
+        rig.rightLegGroup.rotation.z = 0.35;
+        rig.leftKneeGroup.rotation.z = 0.65;
+        rig.rightKneeGroup.rotation.z = 0.55;
+        rig.leftArmGroup.rotation.z = -0.7;
+        rig.rightArmGroup.rotation.z = -0.7;
+      } else if (pState === 'punch') {
+        // Forward jab punch
+        const pNorm = Math.min(1.0, player.stateTimer / 0.35);
+        let punchExtend = 0;
+        if (pNorm < 0.25) {
+          punchExtend = (pNorm / 0.25) * 1.0;
+        } else {
+          punchExtend = (1.0 - (pNorm - 0.25) / 0.75);
+        }
+        rig.torso.rotation.y = punchExtend * 0.3;
+        rig.rightArmGroup.rotation.z = -punchExtend * 1.5;
+        rig.rightForearmGroup.rotation.z = -punchExtend * 0.3;
+      } else if (pState === 'throw') {
+        // Windup & throw
+        const tNorm = Math.min(1.0, player.stateTimer / 0.32);
+        if (tNorm < 0.45) {
+          // Arm back
+          rig.rightArmGroup.rotation.z = 0.8;
+          rig.rightForearmGroup.rotation.z = 1.0;
+        } else {
+          // Whip forward
+          rig.rightArmGroup.rotation.z = -1.4;
+          rig.rightForearmGroup.rotation.z = -0.4;
+        }
+      } else if (pState === 'search') {
+        // Leaning into dumpster, wiggling hands
+        rig.torso.rotation.z = 0.5;
+        rig.torso.position.y = 0.22;
+        rig.headGroup.rotation.z = 0.3;
+        rig.leftArmGroup.rotation.z = -0.8 + Math.sin(t * 12) * 0.2;
+        rig.rightArmGroup.rotation.z = -0.8 - Math.sin(t * 12) * 0.2;
+      } else if (pState === 'drink') {
+        // Bottle to mouth, head tilted back
+        rig.headGroup.rotation.z = -0.4;
+        rig.rightArmGroup.rotation.z = -1.6;
+        rig.rightForearmGroup.rotation.z = -1.2;
+      } else if (pState === 'hurt') {
+        // Recoil back
+        rig.torso.rotation.z = -0.3;
+        rig.headGroup.rotation.z = -0.2;
+        rig.leftArmGroup.rotation.z = 0.6;
+        rig.rightArmGroup.rotation.z = 0.6;
+      } else if (pState === 'defeat') {
+        // Collapsed to ground
+        rig.pelvis.position.y = 0.25;
+        rig.torso.rotation.z = -0.6;
+        rig.leftLegGroup.rotation.z = 1.3;
+        rig.rightLegGroup.rotation.z = 1.1;
+      } else if (pState === 'victory') {
+        // Both arms raised high!
+        rig.leftArmGroup.rotation.z = -2.4;
+        rig.rightArmGroup.rotation.z = -2.4;
+        rig.torso.position.y = 0.35 + Math.sin(t * 6) * 0.08;
+      }
+    }
+
+    function animateEnemyRig(e, t) {
+      const rig = e.rig;
+      rig.root.position.set(e.x, e.y, 0);
+      rig.flipGroup.rotation.y = (e.facing === 1) ? 0 : Math.PI;
+
+      // Reset
+      rig.torso.rotation.set(0, 0, 0);
+      rig.headGroup.rotation.set(0, 0, 0);
+      rig.leftArmGroup.rotation.set(0, 0, 0);
+      rig.rightArmGroup.rotation.set(0, 0, 0);
+      rig.leftLegGroup.rotation.set(0, 0, 0);
+      rig.rightLegGroup.rotation.set(0, 0, 0);
+
+      if (e.defeated) {
+        rig.pelvis.position.y = 0.25;
+        rig.torso.rotation.z = -0.6;
+        rig.leftLegGroup.rotation.z = 1.2;
+        rig.rightLegGroup.rotation.z = 1.2;
+        return;
+      }
+
+      if (e.hitReactTimer > 0) {
+        // Flinch
+        rig.torso.rotation.z = -0.35;
+        rig.headGroup.rotation.z = -0.25;
+        rig.rightArmGroup.rotation.z = 0.5;
+        return;
+      }
+
+      if (e.aiState === 'approach') {
+        const walkCycle = Math.sin(t * 9.5 + e.id);
+        rig.leftLegGroup.rotation.z = walkCycle * 0.5;
+        rig.rightLegGroup.rotation.z = -walkCycle * 0.5;
+        rig.leftArmGroup.rotation.z = -walkCycle * 0.4;
+        rig.rightArmGroup.rotation.z = walkCycle * 0.4;
+      } else if (e.aiState === 'windup') {
+        // Telegraphed windup: fist cocked back
+        rig.rightArmGroup.rotation.z = 0.9;
+        rig.rightForearmGroup.rotation.z = 1.1;
+        rig.torso.rotation.y = -0.25;
+      } else if (e.aiState === 'attack') {
+        // Strike forward!
+        rig.rightArmGroup.rotation.z = -1.5;
+        rig.torso.rotation.y = 0.3;
+      } else {
+        // Idle breathing
+        const breath = Math.sin(t * 3.0 + e.id);
+        rig.torso.position.y = 0.35 + breath * 0.02;
+      }
+    }
+
+    /* =========================================================
+     * 17. CAMERA SYSTEM (SMOOTH CLAMPED ORTHOGRAPHIC FOLLOW)
+     * ========================================================= */
+    function updateCamera(dt) {
+      // Orthographic camera clamped so view never reveals outside level
+      const minCamX = frustumWidth / 2 + 0.1;
+      const maxCamX = (LEVEL_LENGTH + 1.0) - frustumWidth / 2;
+
+      let targetX = player.x + player.facing * 1.2;
+      targetX = THREE.MathUtils.clamp(targetX, minCamX, maxCamX);
+
+      // Smooth horizontal lerp
+      camera.position.x += (targetX - camera.position.x) * (1 - Math.exp(-9 * dt));
+
+      // Camera Shake
+      if (cameraShake > 0) {
+        cameraShake -= dt * 1.5;
+        const shakeOffset = (Math.random() * 2 - 1) * cameraShake * 0.35;
+        camera.position.y = 2.4 + shakeOffset;
+      } else {
+        camera.position.y = 2.4;
+      }
+
+      camera.lookAt(camera.position.x, 2.4, 0);
+
+      // Keep directional light aligned with camera horizontal focus for uniform shadows
+      dirLight.position.x = camera.position.x - 6;
+      dirLight.target.position.x = camera.position.x;
+      dirLight.target.updateMatrixWorld();
+    }
+
+    /* =========================================================
+     * 18. HUD & UI UPDATE
+     * ========================================================= */
+    function updateHudHealth() {
+      const pct = Math.max(0, Math.min(100, Math.round((player.health / player.maxHealth) * 100)));
+      document.getElementById('hp-bar-fill').style.width = pct + '%';
+      document.getElementById('hp-text').innerText = pct + '%';
+      document.getElementById('hp-val').innerText = `${player.health} / ${player.maxHealth}`;
+    }
+
+    function updateHudInventory() {
+      document.getElementById('count-bottle').innerText = player.inventory.bottles;
+      document.getElementById('count-trash').innerText = player.inventory.trash;
+      document.getElementById('count-drink').innerText = player.inventory.drinks;
+
+      const slotBottle = document.getElementById('slot-bottle');
+      const slotTrash = document.getElementById('slot-trash');
+
+      if (player.inventory.selectedWeapon === 'bottle') {
+        slotBottle.classList.add('active');
+        slotTrash.classList.remove('active');
+      } else {
+        slotTrash.classList.add('active');
+        slotBottle.classList.remove('active');
+      }
+    }
+
+    /* =========================================================
+     * 19. MAIN LOOP & TICK ENGINE
+     * ========================================================= */
+    let lastTime = performance.now();
+    let physicsAccumulator = 0;
+    const FIXED_STEP = 1 / 60;
+
+    function gameLoop(now) {
+      requestAnimationFrame(gameLoop);
+
+      let delta = (now - lastTime) / 1000;
+      lastTime = now;
+      if (delta > 0.1) delta = 0.1; // Cap delta against lag spikes
+
+      // Hit-stop effect (brief freeze on impactful hits)
+      if (hitStopTimer > 0) {
+        hitStopTimer -= delta;
+        renderer.render(scene, camera);
+        return;
+      }
+
+      // Fixed timestep physics update
+      physicsAccumulator += delta;
+      while (physicsAccumulator >= FIXED_STEP) {
+        if (gameState === 'play') {
+          updatePlayerPhysics(FIXED_STEP);
+          updateCombatAndInteractions(FIXED_STEP);
+          updateEnemies(FIXED_STEP);
+          updateProjectiles(FIXED_STEP);
+        }
+        physicsAccumulator -= FIXED_STEP;
+      }
+
+      // Frame-rate independent visual updates
+      animateCharacters(delta);
+      updateCamera(delta);
+
+      renderer.render(scene, camera);
+    }
+
+    /* =========================================================
+     * 20. RESIZE & WINDOW EVENTS
+     * ========================================================= */
+    function onWindowResize() {
+      aspect = window.innerWidth / window.innerHeight;
+      frustumWidth = FRUSTUM_HEIGHT * aspect;
+
+      camera.left = -frustumWidth / 2;
+      camera.right = frustumWidth / 2;
+      camera.top = FRUSTUM_HEIGHT / 2;
+      camera.bottom = -FRUSTUM_HEIGHT / 2;
+      camera.updateProjectionMatrix();
+
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener('resize', onWindowResize);
+
+    /* =========================================================
+     * 21. INITIALIZATION ON LOAD
+     * ========================================================= */
+    function init() {
+      buildLevel();
+      initContainers();
+      initPlayer();
+      initEnemies();
+
+      // UI button listeners
+      document.getElementById('btn-start').addEventListener('click', startGame);
+      document.getElementById('btn-defeat-restart').addEventListener('click', restartGame);
+      document.getElementById('btn-victory-restart').addEventListener('click', restartGame);
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    init();
+  })();
+  </script>
+</body>
+</html>

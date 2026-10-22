@@ -1,0 +1,10 @@
+[     618ms] [ERROR] THREE.BufferGeometryUtils: .mergeGeometries() failed with geometry at index 1. All geometries must have compatible attributes; make sure index attribute exists among all geometries, or in none of them. @ https://unpkg.com/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js:131
+[     630ms] TypeError: Cannot read properties of null (reading 'attributes')
+    at jitterGeo (http://localhost:8734/index.html:294:17)
+    at http://localhost:8734/index.html:325:3
+    at Array.map (<anonymous>)
+    at http://localhost:8734/index.html:317:25
+[     626ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8734/favicon.ico:0
+[  879394ms] ReferenceError: Cannot access 'terrainMeshRef' before initialization
+    at buildTop (http://localhost:8734/index.html:237:18)
+    at http://localhost:8734/index.html:238:3

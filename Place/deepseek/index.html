@@ -1,0 +1,2517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Landfill Diorama</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #c9c1b5; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+  #app::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 44%, rgba(255,255,255,0) 52%, rgba(71,62,51,0.17) 100%);
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* ------------------------------------------------------------------ */
+/*  Setup                                                              */
+/* ------------------------------------------------------------------ */
+
+const app = document.getElementById('app');
+const scene = new THREE.Scene();
+const BG = 0xc8c0b4;
+scene.background = new THREE.Color(BG);
+scene.fog = new THREE.Fog(BG, 54, 104);
+
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 220);
+camera.position.set(13.5, 12.2, 21.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+app.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.5, 0.2);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.enablePan = false;
+controls.minDistance = 10;
+controls.maxDistance = 72;
+controls.minPolarAngle = 0.28;
+controls.maxPolarAngle = 1.44;
+
+// Pull the camera back on narrow screens so the whole display base is visible.
+{
+  const startAspect = innerWidth / innerHeight;
+  if (startAspect < 1.6) {
+    const factor = Math.min(2.2, 1.6 / startAspect);
+    const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
+    camera.position.copy(controls.target).add(offset);
+  }
+}
+controls.update();
+
+/* ------------------------------------------------------------------ */
+/*  Warm late-afternoon light                                          */
+/* ------------------------------------------------------------------ */
+
+const hemi = new THREE.HemisphereLight(0xf7ebd9, 0x6b6154, 1.26);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight(0xffe6c6, 2.16);
+sun.position.set(-17, 23, 16);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -18;
+sun.shadow.camera.right = 18;
+sun.shadow.camera.top = 18;
+sun.shadow.camera.bottom = -18;
+sun.shadow.camera.near = 2;
+sun.shadow.camera.far = 70;
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.035;
+sun.shadow.radius = 2;
+scene.add(sun);
+
+const fill = new THREE.DirectionalLight(0xb2c4ca, 0.6);
+fill.position.set(16, 10, -14);
+scene.add(fill);
+
+/* ------------------------------------------------------------------ */
+/*  Deterministic helpers                                              */
+/* ------------------------------------------------------------------ */
+
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const smoothstep = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const lerp = (a, b, t) => a + (b - a) * t;
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hash2(ix, iz, seed) {
+  let h = Math.imul(ix, 374761393) + Math.imul(iz, 668265263) + Math.imul(seed, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function valueNoise(x, z, seed) {
+  const xi = Math.floor(x), zi = Math.floor(z);
+  const xf = x - xi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf);
+  const v = zf * zf * (3 - 2 * zf);
+  const a = hash2(xi, zi, seed);
+  const b = hash2(xi + 1, zi, seed);
+  const c = hash2(xi, zi + 1, seed);
+  const d = hash2(xi + 1, zi + 1, seed);
+  return lerp(lerp(a, b, u), lerp(c, d, u), v);
+}
+
+function fbm(x, z, octaves, seed) {
+  let sum = 0, amp = 0.5, freq = 1, norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    sum += valueNoise(x * freq, z * freq, seed + i * 17) * amp;
+    norm += amp;
+    amp *= 0.5;
+    freq *= 2.03;
+  }
+  return sum / norm;
+}
+
+const rngGlobal = mulberry32(90210);
+
+/* ------------------------------------------------------------------ */
+/*  Palette + materials                                                */
+/* ------------------------------------------------------------------ */
+
+const C = {
+  soilLight: 0x928575,
+  soilMid: 0x786c5e,
+  soilDark: 0x5a4e41,
+  soilDeep: 0x3e3227,
+  mud: 0x5b5949,
+  mudDark: 0x464538,
+  water: 0x6d7b6e,
+  charcoal: 0x353734,
+  olive: 0x585c42,
+  oliveDark: 0x454834,
+  blueBag: 0x465a63,
+  blueBagDark: 0x3a4c54,
+  cardboard: 0x876a48,
+  cardboardDark: 0x654e35,
+  cream: 0xc7bca1,
+  creamDark: 0xa2967b,
+  rust: 0x814a32,
+  rustDark: 0x5b3324,
+  steel: 0x4c4c46,
+  steelDark: 0x34352f,
+  steelLight: 0x78776a,
+  yellow: 0xb89b4b,
+  yellowDark: 0x836f2f,
+  upholstery: 0x6d5a45,
+  upholsteryDark: 0x534334,
+  wood: 0x665039,
+  bluePlastic: 0x4d6a74,
+  greenPlastic: 0x5c7356,
+  orangePlastic: 0xa86a3f,
+  glassGreen: 0x3c5440,
+  glassBrown: 0x4b3527,
+  glassBlue: 0x5d7a82,
+  paper: 0xd5cebb,
+};
+
+const M = {};
+function makeMat(color, opts = {}) {
+  return new THREE.MeshStandardMaterial(Object.assign({
+    color, flatShading: true, roughness: 0.94, metalness: 0.0
+  }, opts));
+}
+
+M.soil = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1.0, metalness: 0.0 });
+M.terrainSide = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1.0, metalness: 0.0 });
+M.path = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.98, metalness: 0.02 });
+M.rut = new THREE.MeshStandardMaterial({ color: 0x343429, flatShading: true, roughness: 1.0 });
+M.cardboard = makeMat(C.cardboard);
+M.cardboardDark = makeMat(C.cardboardDark);
+M.tape = makeMat(0xb3a786, { roughness: 0.8 });
+M.cream = makeMat(C.cream);
+M.creamDark = makeMat(C.creamDark);
+M.rust = makeMat(C.rust, { roughness: 0.86, metalness: 0.16 });
+M.rustDark = makeMat(C.rustDark, { roughness: 0.9, metalness: 0.1 });
+M.steel = makeMat(C.steel, { roughness: 0.66, metalness: 0.55 });
+M.steelDark = makeMat(C.steelDark, { roughness: 0.8, metalness: 0.35 });
+M.steelLight = makeMat(C.steelLight, { roughness: 0.6, metalness: 0.5 });
+M.yellow = makeMat(C.yellow, { roughness: 0.82, metalness: 0.15 });
+M.yellowDark = makeMat(C.yellowDark, { roughness: 0.88, metalness: 0.15 });
+M.rubber = makeMat(0x282a27, { roughness: 0.98 });
+M.rubberGrey = makeMat(0x3b3c36, { roughness: 0.96 });
+M.darkInterior = new THREE.MeshStandardMaterial({ color: 0x1e1d19, roughness: 1, metalness: 0, flatShading: true, side: THREE.BackSide });
+M.darkInteriorDouble = new THREE.MeshStandardMaterial({ color: 0x1e1d19, roughness: 1, metalness: 0, flatShading: true, side: THREE.DoubleSide });
+M.glass = makeMat(0x33474d, { roughness: 0.18, metalness: 0.36, transparent: true, opacity: 0.5, depthWrite: false, emissive: 0x0e171a, emissiveIntensity: 0.35 });
+M.water = makeMat(C.water, { roughness: 0.12, metalness: 0.34, transparent: true, opacity: 0.84, emissive: 0x111813, emissiveIntensity: 0.5 });
+M.waterSheen = makeMat(0xa8b3a7, { roughness: 0.06, metalness: 0.4, transparent: true, opacity: 0.2, depthWrite: false });
+M.upholstery = makeMat(C.upholstery, { roughness: 0.98 });
+M.upholsteryLight = makeMat(0x7a6852, { roughness: 0.98 });
+M.upholsteryDark = makeMat(C.upholsteryDark, { roughness: 0.98 });
+M.wood = makeMat(C.wood, { roughness: 0.95 });
+M.plasticBlue = makeMat(C.bluePlastic, { roughness: 0.72 });
+M.plasticGreen = makeMat(C.greenPlastic, { roughness: 0.75 });
+M.plasticOrange = makeMat(C.orangePlastic, { roughness: 0.72 });
+M.paper = makeMat(C.paper, { roughness: 0.9, side: THREE.DoubleSide });
+M.grassDry = makeMat(0x8a8156, { roughness: 1 });
+M.grassOlive = makeMat(0x6c7048, { roughness: 1 });
+M.fence = makeMat(0x777465, { roughness: 0.78, metalness: 0.42 });
+M.plinth = new THREE.MeshStandardMaterial({ color: 0xaaa297, roughness: 1, metalness: 0, flatShading: true });
+
+const bagMats = {
+  charcoal: makeMat(0x393b37, { roughness: 0.93 }),
+  charcoal2: makeMat(0x2f322f, { roughness: 0.95 }),
+  olive: makeMat(0x5b5e43, { roughness: 0.95 }),
+  olive2: makeMat(0x4c5038, { roughness: 0.95 }),
+  blue: makeMat(0x4b626d, { roughness: 0.92 }),
+  blue2: makeMat(0x3e545e, { roughness: 0.92 }),
+  pale: makeMat(0x777761, { roughness: 0.95 }),
+};
+const bagKeyWeights = [
+  'charcoal', 'charcoal', 'charcoal', 'charcoal', 'charcoal2', 'charcoal2',
+  'olive', 'olive', 'olive', 'olive2', 'olive2', 'blue', 'blue2', 'pale',
+];
+
+const rockMats = [
+  makeMat(0x786d5c), makeMat(0x655b4c), makeMat(0x857967), makeMat(0x585143),
+];
+const debrisMats = [
+  makeMat(0x555746), makeMat(0x44463b), makeMat(0x6b5f47),
+  makeMat(0x7a4a35), makeMat(0x3d413f), makeMat(0x6d6a55),
+];
+
+/* ------------------------------------------------------------------ */
+/*  Geometry helpers                                                   */
+/* ------------------------------------------------------------------ */
+
+const boxCache = new Map();
+function boxGeom(w, h, d) {
+  const key = w.toFixed(3) + '|' + h.toFixed(3) + '|' + d.toFixed(3);
+  let g = boxCache.get(key);
+  if (!g) { g = new THREE.BoxGeometry(w, h, d); boxCache.set(key, g); }
+  return g;
+}
+
+function box(parent, w, h, d, material, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
+  const m = new THREE.Mesh(boxGeom(w, h, d), material);
+  m.position.set(x, y, z);
+  m.rotation.set(rx, ry, rz);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+const cylCache = new Map();
+function cylGeom(rt, rb, h, seg) {
+  const key = [rt.toFixed(3), rb.toFixed(3), h.toFixed(3), seg].join('|');
+  let g = cylCache.get(key);
+  if (!g) { g = new THREE.CylinderGeometry(rt, rb, h, seg, 1); cylCache.set(key, g); }
+  return g;
+}
+
+function cyl(parent, rt, rb, h, seg, material, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
+  const m = new THREE.Mesh(cylGeom(rt, rb, h, seg), material);
+  m.position.set(x, y, z);
+  m.rotation.set(rx, ry, rz);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+const UP = new THREE.Vector3(0, 1, 0);
+function cylinderBetween(parent, a, b, radius, material, segments = 6) {
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = dir.length();
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, segments, 1), material);
+  m.position.copy(a).add(b).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(UP, dir.normalize());
+  m.castShadow = true; m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+function jitterGeometry(geo, fn) {
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const o = fn(x, y, z, i);
+    p.setXYZ(i, o.x, o.y, o.z);
+  }
+  p.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Terrain definition                                                 */
+/* ------------------------------------------------------------------ */
+
+const RX = 11.0;
+const RZ = 9.0;
+const PUDDLE = { x: -7.1, z: 5.6, rx: 2.7, rz: 1.95 };
+
+function outline(a) {
+  return 1 + 0.043 * Math.sin(3 * a + 1.3) + 0.028 * Math.sin(5 * a - 0.6) +
+         0.018 * Math.sin(7 * a + 2.4) + 0.012 * Math.sin(2 * a - 1.9);
+}
+
+function radialCoord(x, z) {
+  const a = Math.atan2(z / RZ, x / RX);
+  const rf = outline(a);
+  return Math.sqrt((x / (RX * rf)) ** 2 + (z / (RZ * rf)) ** 2);
+}
+
+function baseHeight(x, z) {
+  let h = 0.16;
+  h += (fbm(x * 0.16 + 3.1, z * 0.16 - 2.2, 3, 7) - 0.5) * 0.62;
+  h += (fbm(x * 0.52 - 1.0, z * 0.52 + 4.0, 2, 9) - 0.5) * 0.17;
+  return h;
+}
+
+const moundLobes = [
+  { x: -0.2, z: -1.5, r: 5.8, h: 2.85 },
+  { x: -1.9, z: -2.4, r: 3.5, h: 1.20 },
+  { x: 2.1, z: -2.1, r: 3.1, h: 1.02 },
+  { x: 0.2, z: -4.7, r: 2.7, h: 0.80 },
+  { x: -0.8, z: 0.9, r: 3.0, h: 0.72 },
+  { x: -8.1, z: -2.6, r: 2.35, h: 0.92 },
+  { x: -8.9, z: -1.5, r: 1.6, h: 0.38 },
+  { x: 6.4, z: -4.5, r: 2.75, h: 1.10 },
+  { x: 7.3, z: -3.3, r: 1.9, h: 0.56 },
+];
+
+function moundLift(x, z) {
+  let h = 0;
+  for (const l of moundLobes) {
+    const dx = (x - l.x) / l.r;
+    const dz = (z - l.z) / l.r;
+    const q = dx * dx + dz * dz;
+    if (q < 1) h += l.h * Math.pow(1 - q, 1.35);
+  }
+  const ridges = (valueNoise(x * 0.9 + 12.3, z * 0.9 - 4.1, 31) - 0.5) * 0.34 +
+                 (valueNoise(x * 2.1 - 7.2, z * 2.1 + 3.4, 47) - 0.5) * 0.13;
+  return Math.max(0, h + ridges * Math.min(1.6, h * 0.85));
+}
+
+function heightAt(x, z) {
+  let h = baseHeight(x, z) + moundLift(x, z);
+  const pd = ((x - PUDDLE.x) / 2.7) ** 2 + ((z - PUDDLE.z) / 1.95) ** 2;
+  h -= 0.39 * Math.exp(-pd * 1.35);
+  const s = radialCoord(x, z);
+  const edge = smoothstep(0.80, 0.995, s);
+  return h * (1 - edge) + 0.03 * edge;
+}
+
+function surfaceNormal(x, z, eps = 0.22) {
+  const hl = heightAt(x - eps, z), hr = heightAt(x + eps, z);
+  const hd = heightAt(x, z - eps), hu = heightAt(x, z + eps);
+  return new THREE.Vector3(hl - hr, 2 * eps, hd - hu).normalize();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Presentation plinth                                                */
+/* ------------------------------------------------------------------ */
+
+const plinth = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), M.plinth);
+plinth.rotation.x = -Math.PI / 2;
+plinth.position.y = -1.52;
+plinth.receiveShadow = true;
+scene.add(plinth);
+
+/* ------------------------------------------------------------------ */
+/*  Terrain top surface                                                */
+/* ------------------------------------------------------------------ */
+
+const world = new THREE.Group();
+world.name = 'diorama';
+scene.add(world);
+
+const terrainGroup = new THREE.Group();
+terrainGroup.name = 'ground';
+world.add(terrainGroup);
+
+const RINGS = 46;
+const SEGS = 168;
+const rimPoints = [];
+
+(function buildTerrain() {
+  const rng = mulberry32(4471);
+  const positions = [];
+  const colors = [];
+  const indices = [];
+
+  const cLight = new THREE.Color(C.soilLight);
+  const cMid = new THREE.Color(C.soilMid);
+  const cDark = new THREE.Color(C.soilDark);
+  const cTrash = new THREE.Color(0x5c5b4c);
+  const cDamp = new THREE.Color(0x4a4739);
+
+  function terrainColor(x, z, y) {
+    const n = fbm(x * 0.42 + 2.2, z * 0.42 - 1.1, 3, 61);
+    const n2 = valueNoise(x * 2.4 - 5.0, z * 2.4 + 3.4, 73);
+    const col = cLight.clone().lerp(cMid, clamp(n * 1.2, 0, 1));
+    col.lerp(cDark, n2 * 0.4);
+    const lift = moundLift(x, z);
+    const trashy = smoothstep(0.3, 1.8, lift) * 0.72;
+    if (trashy > 0) col.lerp(cTrash, trashy);
+    const pd = ((x - PUDDLE.x) / 3.4) ** 2 + ((z - PUDDLE.z) / 2.7) ** 2;
+    col.lerp(cDamp, Math.exp(-pd * 1.1) * 0.62);
+    col.offsetHSL(0, (n2 - 0.5) * 0.02, (n2 - 0.5) * 0.04);
+    return col;
+  }
+
+  // centre vertex
+  const cy = heightAt(0, 0);
+  positions.push(0, cy, 0);
+  const cc = terrainColor(0, 0, cy);
+  colors.push(cc.r, cc.g, cc.b);
+
+  for (let i = 1; i <= RINGS; i++) {
+    const t = Math.pow(i / RINGS, 1.03);
+    for (let j = 0; j < SEGS; j++) {
+      const aBase = (j / SEGS) * TAU;
+      const jitterA = (i < RINGS) ? (rng() - 0.5) * 0.007 : 0;
+      const a = aBase + jitterA;
+      const rf = outline(a);
+      let x = Math.cos(a) * RX * rf * t;
+      let z = Math.sin(a) * RZ * rf * t;
+      if (i < RINGS) {
+        const amp = 0.17 * (1 - t * t);
+        x += (rng() - 0.5) * amp;
+        z += (rng() - 0.5) * amp;
+      }
+      const y = heightAt(x, z);
+      positions.push(x, y, z);
+      const col = terrainColor(x, z, y);
+      colors.push(col.r, col.g, col.b);
+      if (i === RINGS) rimPoints.push(new THREE.Vector3(x, y, z));
+    }
+  }
+
+  // fan from centre to first ring
+  for (let j = 0; j < SEGS; j++) {
+    const j2 = (j + 1) % SEGS;
+    indices.push(0, 1 + j2, 1 + j);
+  }
+  // rings
+  for (let i = 1; i < RINGS; i++) {
+    const rowA = 1 + (i - 1) * SEGS;
+    const rowB = 1 + i * SEGS;
+    for (let j = 0; j < SEGS; j++) {
+      const j2 = (j + 1) % SEGS;
+      const a = rowA + j, b = rowA + j2, c = rowB + j, d = rowB + j2;
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  g.setIndex(indices);
+  g.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(g, M.soil);
+  mesh.receiveShadow = true;
+  mesh.castShadow = true;
+  mesh.name = 'terrain-top';
+  terrainGroup.add(mesh);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Terrain sides + underside                                          */
+/* ------------------------------------------------------------------ */
+
+(function buildTerrainSides() {
+  const rng = mulberry32(915);
+  const rowsY = [
+    (p) => p.y - 0.01,
+    (p) => p.y - 0.15,
+    (p) => p.y - 0.33,
+    () => -0.62,
+    () => -0.98,
+    () => -1.34,
+  ];
+  const rowColors = [
+    new THREE.Color(0x9d8467),
+    new THREE.Color(0x8a7053),
+    new THREE.Color(0x715a42),
+    new THREE.Color(0x5b4632),
+    new THREE.Color(0x463529),
+    new THREE.Color(0x33261c),
+  ];
+  const bulges = [0, 0.01, 0.03, 0.05, 0.035, 0.02];
+  const positions = [];
+  const colors = [];
+  const indices = [];
+  const n = rimPoints.length;
+
+  for (let r = 0; r < rowsY.length; r++) {
+    for (let j = 0; j < n; j++) {
+      const p = rimPoints[j];
+      const out = new THREE.Vector3(p.x, 0, p.z).normalize();
+      const bulge = bulges[r];
+      let y = rowsY[r](p) + (r > 2 ? (rng() - 0.5) * 0.07 : 0);
+      const x = p.x + out.x * bulge;
+      const z = p.z + out.z * bulge;
+      positions.push(x, y, z);
+      const col = rowColors[r].clone();
+      col.offsetHSL(0, 0, (rng() - 0.5) * 0.03);
+      colors.push(col.r, col.g, col.b);
+    }
+  }
+
+  for (let r = 0; r < rowsY.length - 1; r++) {
+    for (let j = 0; j < n; j++) {
+      const j2 = (j + 1) % n;
+      const a = r * n + j, b = r * n + j2;
+      const c = (r + 1) * n + j, d = (r + 1) * n + j2;
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  g.setIndex(indices);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, M.terrainSide);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.name = 'terrain-sides';
+  terrainGroup.add(mesh);
+
+  // underside cap
+  const underPositions = [];
+  const underIndices = [];
+  underPositions.push(0, -1.35, 0);
+  for (let j = 0; j < n; j++) {
+    const p = rimPoints[j];
+    underPositions.push(p.x, -1.35, p.z);
+  }
+  for (let j = 0; j < n; j++) {
+    const j2 = (j + 1) % n;
+    underIndices.push(0, 1 + j, 1 + j2);
+  }
+  const ug = new THREE.BufferGeometry();
+  ug.setAttribute('position', new THREE.Float32BufferAttribute(underPositions, 3));
+  ug.setIndex(underIndices);
+  ug.computeVertexNormals();
+  const under = new THREE.Mesh(ug, makeMat(0x33281f));
+  under.receiveShadow = true;
+  terrainGroup.add(under);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Stones embedded in the exposed soil walls                          */
+/* ------------------------------------------------------------------ */
+
+(function sideStones() {
+  const rng = mulberry32(3107);
+  for (let i = 0; i < 11; i++) {
+    const idx = Math.floor(rng() * rimPoints.length);
+    const p = rimPoints[idx];
+    const out = new THREE.Vector3(p.x, 0, p.z).normalize();
+    const s = 0.1 + rng() * 0.15;
+    const geo = new THREE.DodecahedronGeometry(s, 0);
+    jitterGeometry(geo, (x, y, z) => ({
+      x: x * (0.85 + rng() * 0.3), y: y * (0.6 + rng() * 0.4), z: z * (0.85 + rng() * 0.3)
+    }));
+    const m = new THREE.Mesh(geo, rockMats[i % rockMats.length]);
+    m.position.set(p.x + out.x * 0.045, -0.34 - rng() * 0.82, p.z + out.z * 0.045);
+    m.rotation.set(rng() * TAU, rng() * TAU, rng() * TAU);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    world.add(m);
+  }
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Muddy vehicle path and ruts                                        */
+/* ------------------------------------------------------------------ */
+
+const pathCurve = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(-4.7, 0, 8.7),
+  new THREE.Vector3(-4.45, 0, 7.4),
+  new THREE.Vector3(-4.05, 0, 6.1),
+  new THREE.Vector3(-3.35, 0, 4.85),
+  new THREE.Vector3(-2.45, 0, 3.75),
+  new THREE.Vector3(-1.6, 0, 2.8),
+  new THREE.Vector3(-1.0, 0, 1.9),
+  new THREE.Vector3(-0.7, 0, 1.25),
+], false, 'catmullrom', 0.5);
+
+function buildRibbon(curve, opts) {
+  const { steps = 80, columns = 5, halfWidthAt, yOffset = 0.035, colorFn } = opts;
+  const pts = curve.getSpacedPoints(steps);
+  const positions = [];
+  const colors = [];
+  const indices = [];
+  for (let i = 0; i <= steps; i++) {
+    const p = pts[i];
+    const tangent = curve.getTangentAt(i / steps);
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+    const w = halfWidthAt(i / steps);
+    for (let k = 0; k < columns; k++) {
+      const u = columns === 1 ? 0 : (k / (columns - 1)) * 2 - 1;
+      const x = p.x + side.x * u * w;
+      const z = p.z + side.z * u * w;
+      const y = heightAt(x, z) + yOffset;
+      positions.push(x, y, z);
+      const col = colorFn(u, i / steps, x, z);
+      colors.push(col.r, col.g, col.b);
+    }
+  }
+  for (let i = 0; i < steps; i++) {
+    for (let k = 0; k < columns - 1; k++) {
+      const a = i * columns + k, b = a + 1;
+      const c = (i + 1) * columns + k, d = c + 1;
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  g.setIndex(indices);
+  g.computeVertexNormals();
+  return g;
+}
+
+const pathGroup = new THREE.Group();
+pathGroup.name = 'access-path';
+world.add(pathGroup);
+
+const mudA = new THREE.Color(0x6c6954);
+const mudB = new THREE.Color(0x585646);
+const mudC = new THREE.Color(0x454438);
+const pathGeom = buildRibbon(pathCurve, {
+  steps: 92,
+  columns: 6,
+  halfWidthAt: (t) => 1.68 + 0.18 * Math.sin(t * 13.0) + 0.1 * Math.sin(t * 27.0 + 1.7),
+  yOffset: 0.05,
+  colorFn: (u, t) => {
+    const n = valueNoise(t * 26 + u * 2.1, u * 5.3, 91);
+    const c = mudA.clone().lerp(mudB, n);
+    const edge = smoothstep(0.55, 1.0, Math.abs(u));
+    c.lerp(mudC, edge * 0.45);
+    return c;
+  }
+});
+const pathMesh = new THREE.Mesh(pathGeom, M.path);
+pathMesh.receiveShadow = true;
+pathMesh.castShadow = false;
+pathGroup.add(pathMesh);
+
+// shallow wheel ruts
+function rutGeom(offset, width) {
+  const steps = 90;
+  const positions = [];
+  const indices = [];
+  const columns = 3;
+  for (let i = 0; i <= steps; i++) {
+    const p = pathCurve.getSpacedPoints(steps)[i];
+    const tangent = pathCurve.getTangentAt(i / steps);
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+    const wobble = Math.sin(i * 0.41) * 0.06;
+    for (let k = 0; k < columns; k++) {
+      const u = (k - 1) * width;
+      const x = p.x + side.x * (offset + wobble) + side.x * u;
+      const z = p.z + side.z * (offset + wobble) + side.z * u;
+      positions.push(x, heightAt(x, z) + 0.055, z);
+    }
+  }
+  for (let i = 0; i < steps; i++) {
+    for (let k = 0; k < columns - 1; k++) {
+      const a = i * columns + k, b = a + 1;
+      const c = (i + 1) * columns + k, d = c + 1;
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setIndex(indices);
+  g.computeVertexNormals();
+  return g;
+}
+[-0.66, 0.7].forEach((offset, idx) => {
+  const m = new THREE.Mesh(rutGeom(offset, 0.23), M.rut);
+  m.receiveShadow = true;
+  pathGroup.add(m);
+});
+
+(function pathClumps() {
+  const rng = mulberry32(7712);
+  const clumpMat = makeMat(0x55503f, { roughness: 1 });
+  const clumpMat2 = makeMat(0x6a5b47, { roughness: 1 });
+  for (let i = 0; i < 26; i++) {
+    const t = rng();
+    const p = pathCurve.getPointAt(t);
+    const tangent = pathCurve.getTangentAt(t);
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x);
+    const off = (rng() > 0.5 ? 1 : -1) * (1.5 + rng() * 0.5);
+    const x = p.x + side.x * off;
+    const z = p.z + side.z * off;
+    const s = 0.08 + rng() * 0.2;
+    const g = new THREE.DodecahedronGeometry(s, 0);
+    jitterGeometry(g, (vx, vy, vz) => ({ x: vx, y: vy * 0.45, z: vz * (0.75 + rng() * 0.5) }));
+    const m = new THREE.Mesh(g, i % 3 === 0 ? clumpMat2 : clumpMat);
+    m.position.set(x, heightAt(x, z) + s * 0.08, z);
+    m.rotation.set(rng() * 0.5, rng() * TAU, rng() * 0.5);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    pathGroup.add(m);
+  }
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Puddle                                                             */
+/* ------------------------------------------------------------------ */
+
+const puddleGroup = new THREE.Group();
+puddleGroup.name = 'puddle';
+world.add(puddleGroup);
+
+const waterY = heightAt(PUDDLE.x, PUDDLE.z) + 0.16;
+
+function irregularShape(rx, rz, segments, seed, amp = 0.12) {
+  const rng = mulberry32(seed);
+  const shape = new THREE.Shape();
+  for (let i = 0; i < segments; i++) {
+    const a = (i / segments) * TAU;
+    const r = 1 + Math.sin(a * 3 + seed) * amp + Math.sin(a * 5 - seed * 0.3) * amp * 0.6 +
+              (rng() - 0.5) * amp * 0.5;
+    const x = Math.cos(a) * rx * r;
+    const y = Math.sin(a) * rz * r;
+    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return shape;
+}
+
+const waterShape = irregularShape(PUDDLE.rx, PUDDLE.rz, 26, 33, 0.10);
+const waterGeom = new THREE.ShapeGeometry(waterShape);
+waterGeom.rotateX(-Math.PI / 2);
+const water = new THREE.Mesh(waterGeom, M.water);
+water.position.set(PUDDLE.x, waterY, PUDDLE.z);
+water.receiveShadow = true;
+puddleGroup.add(water);
+
+const sheenShape = irregularShape(PUDDLE.rx * 0.52, PUDDLE.rz * 0.42, 18, 84, 0.18);
+const sheenGeom = new THREE.ShapeGeometry(sheenShape);
+sheenGeom.rotateX(-Math.PI / 2);
+const sheen = new THREE.Mesh(sheenGeom, M.waterSheen);
+sheen.position.set(PUDDLE.x + 0.25, waterY + 0.012, PUDDLE.z - 0.15);
+puddleGroup.add(sheen);
+
+const rippleMaterials = [];
+const ripples = [];
+for (let i = 0; i < 3; i++) {
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xd8ded4, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide
+  });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 0.93, 30), mat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(PUDDLE.x + (i - 1) * 0.45, waterY + 0.016, PUDDLE.z + (i % 2) * 0.35);
+  puddleGroup.add(ring);
+  rippleMaterials.push(mat);
+  ripples.push({ mesh: ring, offset: i * 2.1 });
+}
+
+// muddy rim clumps
+(function puddleRim() {
+  const rng = mulberry32(5521);
+  const bankMat = makeMat(0x514c3b, { roughness: 1 });
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * TAU + rng() * 0.2;
+    const r = 1.0 + rng() * 0.25;
+    const x = PUDDLE.x + Math.cos(a) * PUDDLE.rx * r;
+    const z = PUDDLE.z + Math.sin(a) * PUDDLE.rz * r;
+    const s = 0.12 + rng() * 0.18;
+    const g = new THREE.DodecahedronGeometry(s, 0);
+    jitterGeometry(g, (vx, vy, vz) => ({ x: vx * (0.9 + rng() * 0.25), y: vy * 0.55, z: vz }));
+    const m = new THREE.Mesh(g, bankMat);
+    m.position.set(x, heightAt(x, z) + 0.01, z);
+    m.rotation.set(rng() * 0.4, rng() * TAU, rng() * 0.4);
+    m.scale.y = 0.5;
+    m.castShadow = true; m.receiveShadow = true;
+    puddleGroup.add(m);
+  }
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Shared trash geometries                                            */
+/* ------------------------------------------------------------------ */
+
+function makeBagGeometry(seed) {
+  const g = new THREE.SphereGeometry(1, 9, 6);
+  jitterGeometry(g, (x, y, z) => {
+    const f = 1 + 0.11 * Math.sin(x * 4.3 + seed) + 0.075 * Math.sin(y * 5.7 + z * 3.1 + seed * 1.7) +
+              0.045 * Math.sin(z * 7.3 - seed * 0.8);
+    const pinch = 1 - 0.3 * smoothstep(0.12, 0.92, y);
+    let yy = y;
+    if (y < -0.62) yy = -0.62 + (y + 0.62) * 0.35;
+    return { x: x * f * pinch, y: yy * f, z: z * f * pinch };
+  });
+  return g;
+}
+const bagGeoms = [makeBagGeometry(1.2), makeBagGeometry(3.7), makeBagGeometry(7.4), makeBagGeometry(11.9)];
+const neckGeom = new THREE.CylinderGeometry(0.085, 0.13, 0.26, 5, 1);
+const knotGeom = new THREE.IcosahedronGeometry(0.115, 0);
+
+function createBag(rng, size = 0.8, matKey = null) {
+  const g = new THREE.Group();
+  const key = matKey || bagKeyWeights[Math.floor(rng() * bagKeyWeights.length)];
+  const mat = bagMats[key];
+  const body = new THREE.Mesh(bagGeoms[Math.floor(rng() * bagGeoms.length)], mat);
+  body.scale.set(0.57 + rng() * 0.1, 0.50 + rng() * 0.08, 0.54 + rng() * 0.1);
+  body.position.y = 0.55;
+  body.rotation.y = rng() * TAU;
+  body.castShadow = true; body.receiveShadow = true;
+  g.add(body);
+
+  const neck = new THREE.Mesh(neckGeom, mat);
+  neck.position.set((rng() - 0.5) * 0.12, 1.09, (rng() - 0.5) * 0.12);
+  neck.rotation.set((rng() - 0.5) * 0.4, 0, (rng() - 0.5) * 0.4);
+  neck.castShadow = true;
+  g.add(neck);
+
+  const knot = new THREE.Mesh(knotGeom, mat);
+  knot.position.set(neck.position.x + (rng() - 0.5) * 0.05, 1.23, neck.position.z + (rng() - 0.5) * 0.05);
+  knot.rotation.set(rng() * 3, rng() * 3, rng() * 3);
+  knot.castShadow = true;
+  g.add(knot);
+
+  g.scale.setScalar(size);
+  g.rotation.y = rng() * TAU;
+  return g;
+}
+
+function createCardboardBox(rng, open = true) {
+  const g = new THREE.Group();
+  const w = 0.52 + rng() * 0.72;
+  const h = 0.34 + rng() * 0.45;
+  const d = 0.45 + rng() * 0.6;
+  const t = 0.045;
+  const mat = rng() > 0.4 ? M.cardboard : M.cardboardDark;
+
+  box(g, w, t, d, mat, 0, t / 2, 0);
+  box(g, w, h, t, mat, 0, h / 2, -d / 2 + t / 2, (rng() - 0.5) * 0.06, 0, 0);
+  box(g, w, h, t, mat, 0, h / 2, d / 2 - t / 2, (rng() - 0.5) * 0.06, 0, 0);
+  box(g, t, h, d - t * 2, mat, -w / 2 + t / 2, h / 2, 0, 0, 0, (rng() - 0.5) * 0.06);
+  box(g, t, h, d - t * 2, mat, w / 2 - t / 2, h / 2, 0, 0, 0, (rng() - 0.5) * 0.06);
+
+  // dark fold line along top edges
+  box(g, w, 0.018, 0.02, M.cardboardDark, 0, h + 0.005, -d / 2 + 0.01);
+  box(g, w, 0.018, 0.02, M.cardboardDark, 0, h + 0.005, d / 2 - 0.01);
+
+  if (open) {
+    const flapT = 0.035;
+    const f1 = box(g, w * 0.98, flapT, d * 0.48, mat, 0, h + 0.05, d * 0.73, 0.55, 0, 0);
+    const f2 = box(g, w * 0.94, flapT, d * 0.45, mat, 0, h + 0.02, -d * 0.7, -0.38, 0, 0.03);
+    const f3 = box(g, w * 0.44, flapT, d * 0.92, mat, -w * 0.72, h + 0.04, 0, 0, 0, -0.7);
+    const f4 = box(g, w * 0.4, flapT, d * 0.86, mat, w * 0.68, h - 0.02, 0, 0, 0, -1.1);
+    f1.rotation.y = (rng() - 0.5) * 0.2;
+    f2.rotation.y = (rng() - 0.5) * 0.2;
+    f3.rotation.x = (rng() - 0.5) * 0.3;
+    f4.rotation.x = (rng() - 0.5) * 0.3;
+    // dark inside
+    const inner = new THREE.Mesh(boxGeom(w - t * 2.2, 0.02, d - t * 2.2), M.steelDark);
+    inner.position.y = 0.09;
+    g.add(inner);
+  } else {
+    box(g, w, 0.05, d, mat, 0, h + 0.02, 0);
+    box(g, 0.08, 0.006, d * 0.99, M.tape, 0, h + 0.052, 0);
+  }
+
+  g.scale.set(0.9 + rng() * 0.35, 0.9 + rng() * 0.25, 0.9 + rng() * 0.35);
+  g.rotation.y = rng() * TAU;
+  return g;
+}
+
+function makeBottleGeometry() {
+  const pts = [
+    new THREE.Vector2(0.0, 0.0),
+    new THREE.Vector2(0.18, 0.0),
+    new THREE.Vector2(0.235, 0.035),
+    new THREE.Vector2(0.235, 0.6),
+    new THREE.Vector2(0.21, 0.7),
+    new THREE.Vector2(0.125, 0.86),
+    new THREE.Vector2(0.095, 0.97),
+    new THREE.Vector2(0.095, 1.23),
+    new THREE.Vector2(0.12, 1.25),
+    new THREE.Vector2(0.12, 1.31),
+    new THREE.Vector2(0.102, 1.33),
+  ];
+  return new THREE.LatheGeometry(pts, 9);
+}
+const bottleGeom = makeBottleGeometry();
+
+function makeCanGeometry() {
+  const body = new THREE.CylinderGeometry(0.17, 0.16, 0.4, 9, 1);
+  body.translate(0, 0.2, 0);
+  const rimTop = new THREE.CylinderGeometry(0.181, 0.176, 0.032, 9, 1);
+  rimTop.translate(0, 0.392, 0);
+  const rimBottom = new THREE.CylinderGeometry(0.14, 0.168, 0.03, 9, 1);
+  rimBottom.translate(0, 0.015, 0);
+  return mergeGeometries([body, rimTop, rimBottom], false);
+}
+const canGeom = makeCanGeometry();
+
+function makeTireGeometry() {
+  const parts = [];
+  const torus = new THREE.TorusGeometry(0.52, 0.225, 7, 16);
+  parts.push(torus);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * TAU;
+    const b = new THREE.BoxGeometry(0.44, 0.05, 0.21);
+    b.rotateZ(a);
+    b.translate(Math.cos(a) * 0.73, Math.sin(a) * 0.73, 0);
+    parts.push(b);
+  }
+  return mergeGeometries(parts, false);
+}
+const tireGeom = makeTireGeometry();
+
+const tireSideMat = new THREE.MeshStandardMaterial({
+  color: 0x343631, flatShading: true, roughness: 0.98, metalness: 0.0, side: THREE.DoubleSide
+});
+const tireSideGeom = new THREE.RingGeometry(0.305, 0.715, 16, 1);
+function createTire(rng, lean = 0) {
+  const g = new THREE.Group();
+  const shell = new THREE.Group();
+  const tire = new THREE.Mesh(tireGeom, M.rubber);
+  tire.castShadow = true;
+  tire.receiveShadow = true;
+  shell.add(tire);
+  // flat rubber sidewalls around the open centre
+  for (const z of [-0.208, 0.208]) {
+    const side = new THREE.Mesh(tireSideGeom, tireSideMat);
+    side.position.z = z;
+    side.castShadow = true;
+    shell.add(side);
+  }
+  shell.rotation.set(Math.PI / 2 + lean, 0, rng() * TAU);
+  g.add(shell);
+  return g;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Scatter positions                                                  */
+/* ------------------------------------------------------------------ */
+
+function randomMoundPoint(rng, maxR = 5.0, minLift = 0.18, cx = -0.2, cz = -1.5, aspect = 0.88) {
+  for (let tries = 0; tries < 80; tries++) {
+    const a = rng() * TAU;
+    const r = Math.sqrt(rng()) * maxR;
+    const x = cx + Math.cos(a) * r * 1.04;
+    const z = cz + Math.sin(a) * r * aspect;
+    if (moundLift(x, z) > minLift) return { x, z };
+  }
+  return { x: cx, z: cz };
+}
+
+function onGround(rng, x, z, obj, sink = 0.05) {
+  obj.position.set(x, heightAt(x, z) - sink, z);
+  return obj;
+}
+
+function placeTrashOnMound(obj, x, z, rng, sink = 0.06) {
+  const y = heightAt(x, z) - sink;
+  obj.position.set(x, y, z);
+  const n = surfaceNormal(x, z, 0.3);
+  const tiltQ = new THREE.Quaternion().setFromUnitVectors(UP, n);
+  const yawQ = new THREE.Quaternion().setFromAxisAngle(UP, rng() * TAU);
+  const blend = new THREE.Quaternion().slerp(tiltQ, 0.18 + rng() * 0.22);
+  obj.quaternion.copy(yawQ).multiply(blend);
+  return obj;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Trash on the main mound                                            */
+/* ------------------------------------------------------------------ */
+
+const trashGroup = new THREE.Group();
+trashGroup.name = 'trash';
+world.add(trashGroup);
+
+(function scatterBags() {
+  const rng = mulberry32(3187);
+  const clusters = [
+    [1.2, 0.2], [-1.9, 0.3], [-3.2, -1.5], [2.6, -1.2],
+    [0.1, -3.2], [-1.2, -3.9], [3.5, -2.6], [-0.3, -0.7],
+    [1.0, -2.2], [-2.8, -3.1],
+  ];
+  for (const [cx, cz] of clusters) {
+    const count = 2 + Math.floor(rng() * 2);
+    for (let i = 0; i < count; i++) {
+      const a = rng() * TAU;
+      const r = 0.25 + rng() * 0.8;
+      const x = cx + Math.cos(a) * r;
+      const z = cz + Math.sin(a) * r * 0.8;
+      const size = 0.52 + rng() * 0.52;
+      const bag = createBag(rng, size);
+      placeTrashOnMound(bag, x, z, rng, 0.06 + rng() * 0.05);
+      bag.rotateY(rng() * TAU);
+      trashGroup.add(bag);
+    }
+  }
+
+  // A few large bags leaning at the base of the mound.
+  const baseBags = [[-4.2, 1.8, 0.9], [2.7, 1.6, 0.95], [-2.4, 2.0, 0.8], [4.2, 0.9, 0.85]];
+  for (const [x, z, s] of baseBags) {
+    const bag = createBag(rng, s);
+    bag.position.set(x, heightAt(x, z) - 0.04, z);
+    bag.rotation.set((rng() - 0.5) * 0.2, rng() * TAU, (rng() - 0.5) * 0.2);
+    trashGroup.add(bag);
+  }
+
+  // extra bags filling the upper slopes
+  for (let i = 0; i < 18; i++) {
+    const p = randomMoundPoint(rng, 5.1, 0.22);
+    const bag = createBag(rng, 0.4 + rng() * 0.42);
+    placeTrashOnMound(bag, p.x, p.z, rng, 0.05 + rng() * 0.04);
+    trashGroup.add(bag);
+  }
+
+  // clusters on the lower front and flanks
+  const lowerClusters = [
+    [-1.35, 1.35], [-2.35, 0.55], [2.3, 1.05], [-0.6, -1.4],
+    [2.9, -0.4], [1.7, 1.85],
+  ];
+  for (const [cx, cz] of lowerClusters) {
+    for (let i = 0; i < 2 + Math.floor(rng() * 2); i++) {
+      const x = cx + (rng() - 0.5) * 0.9;
+      const z = cz + (rng() - 0.5) * 0.7;
+      const bag = createBag(rng, 0.38 + rng() * 0.4);
+      placeTrashOnMound(bag, x, z, rng, 0.05);
+      trashGroup.add(bag);
+    }
+  }
+
+  // a few bags on the broad apron of the pile
+  for (const [x, z, s] of [[-0.3, 1.55, 0.58], [0.65, 2.05, 0.46], [2.15, 2.2, 0.52], [-3.2, 1.15, 0.44], [1.35, 1.35, 0.38]]) {
+    const bag = createBag(rng, s);
+    placeTrashOnMound(bag, x, z, rng, 0.05);
+    trashGroup.add(bag);
+  }
+
+  // rear face of the pile, seen when orbiting
+  for (let i = 0; i < 10; i++) {
+    const x = -3.0 + rng() * 6.0;
+    const z = -2.7 - rng() * 2.4;
+    if (moundLift(x, z) < 0.2) continue;
+    const bag = createBag(rng, 0.4 + rng() * 0.4);
+    placeTrashOnMound(bag, x, z, rng, 0.05);
+    trashGroup.add(bag);
+  }
+  for (let i = 0; i < 2; i++) {
+    const x = -1.8 + rng() * 3.6;
+    const z = -3.0 - rng() * 1.4;
+    if (moundLift(x, z) < 0.25) continue;
+    const b = createCardboardBox(rng, i === 0);
+    placeTrashOnMound(b, x, z, rng, 0.04);
+    trashGroup.add(b);
+  }
+})();
+
+(function moundClumps() {
+  const rng = mulberry32(40213);
+  const clumpMats = [
+    makeMat(0x505243, { roughness: 1 }),
+    makeMat(0x41443a, { roughness: 1 }),
+    makeMat(0x5b5443, { roughness: 1 }),
+    makeMat(0x6c5a44, { roughness: 1 }),
+    makeMat(0x4b4a3d, { roughness: 1 }),
+  ];
+  const clumpGeoms = [];
+  for (let v = 0; v < 4; v++) {
+    const g = new THREE.DodecahedronGeometry(0.5, 0);
+    jitterGeometry(g, (x, y, z) => {
+      const f = 1 + 0.22 * Math.sin(x * 4.1 + v) + 0.16 * Math.sin(z * 5.3 - v);
+      return { x: x * f, y: y * f, z: z * f };
+    });
+    clumpGeoms.push(g);
+  }
+  for (let i = 0; i < 42; i++) {
+    const p = randomMoundPoint(rng, 5.25, 0.25);
+    const s = 0.32 + rng() * 0.68;
+    const m = new THREE.Mesh(clumpGeoms[i % clumpGeoms.length], clumpMats[i % clumpMats.length]);
+    m.scale.set(s * (0.9 + rng() * 0.5), s * (0.45 + rng() * 0.45), s * (0.9 + rng() * 0.5));
+    m.position.set(p.x, heightAt(p.x, p.z) + s * 0.06, p.z);
+    m.rotation.set(rng() * TAU, rng() * TAU, rng() * TAU);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    trashGroup.add(m);
+  }
+
+  // torn plastic tarp draped over the back of the pile
+  const tarpGeo = new THREE.PlaneGeometry(2.5, 1.7, 6, 5);
+  jitterGeometry(tarpGeo, (x, y, z) => ({
+    x: x + 0.08 * Math.sin(y * 4.1),
+    y: y + 0.06 * Math.sin(x * 5.0),
+    z: z + (Math.sin(x * 3.1) * 0.09 + Math.cos(y * 4.3) * 0.07)
+  }));
+  const tarp = new THREE.Mesh(tarpGeo, new THREE.MeshStandardMaterial({
+    color: 0x383b36, roughness: 0.98, flatShading: true, side: THREE.DoubleSide
+  }));
+  const tx = -1.4, tz = -3.5;
+  tarp.position.set(tx, heightAt(tx, tz) + 0.1, tz);
+  tarp.rotation.set(-Math.PI / 2 + 0.32, 0.5, 0.1);
+  tarp.castShadow = true;
+  tarp.receiveShadow = true;
+  trashGroup.add(tarp);
+})();
+
+(function scatterBoxes() {
+  const rng = mulberry32(7719);
+  const spots = [
+    [-3.0, 0.6], [1.8, 0.7], [3.4, 1.0], [-1.0, -2.0],
+    [2.1, -2.6], [-2.6, -2.7], [4.6, -2.4], [-0.2, -4.0],
+  ];
+  for (let i = 0; i < spots.length; i++) {
+    const [x, z] = spots[i];
+    const b = createCardboardBox(rng, i % 3 !== 2);
+    placeTrashOnMound(b, x, z, rng, 0.04);
+    b.rotateY(rng() * TAU);
+    trashGroup.add(b);
+  }
+})();
+
+(function scatterSmallDebris() {
+  const rng = mulberry32(8821);
+  const geoms = [
+    new THREE.DodecahedronGeometry(0.17, 0),
+    new THREE.IcosahedronGeometry(0.15, 0),
+    new THREE.TetrahedronGeometry(0.2, 0),
+  ];
+  const mesh = new THREE.InstancedMesh(geoms[0], new THREE.MeshStandardMaterial({
+    color: 0xffffff, flatShading: true, roughness: 1
+  }), 110);
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  for (let i = 0; i < 110; i++) {
+    let x, z;
+    if (i < 88) {
+      const p = randomMoundPoint(rng, 5.0, 0.25);
+      x = p.x; z = p.z;
+    } else {
+      const a = rng() * TAU;
+      const r = 0.6 + rng() * 1.6;
+      const centers = [[-8.1, -2.6], [6.4, -4.5]];
+      const c = centers[i % 2];
+      x = c[0] + Math.cos(a) * r;
+      z = c[1] + Math.sin(a) * r;
+    }
+    const s = 0.45 + rng() * 1.5;
+    dummy.position.set(x, heightAt(x, z) + 0.02 * s, z);
+    dummy.rotation.set(rng() * TAU, rng() * TAU, rng() * TAU);
+    dummy.scale.set(s * (0.8 + rng() * 0.5), s * (0.35 + rng() * 0.4), s * (0.8 + rng() * 0.4));
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    color.setHex(debrisMats[i % debrisMats.length].color.getHex());
+    color.offsetHSL(0, 0, (rng() - 0.5) * 0.05);
+    mesh.setColorAt(i, color);
+  }
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  trashGroup.add(mesh);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Tires and barrels                                                  */
+/* ------------------------------------------------------------------ */
+
+(function placeTires() {
+  const rng = mulberry32(6612);
+  // foreground stack
+  const t1 = createTire(rng, 0);
+  t1.position.set(-8.55, heightAt(-8.55, 3.3) + 0.16, 3.3);
+  t1.rotation.z = 0.05;
+  trashGroup.add(t1);
+  const t2 = createTire(rng, 0);
+  t2.position.set(-8.52, t1.position.y + 0.4, 3.27);
+  t2.rotation.z = -0.09;
+  t2.rotation.y = 0.7;
+  trashGroup.add(t2);
+  const t3 = createTire(rng, 1.05);
+  t3.position.set(-6.6, heightAt(-6.6, 0.8) + 0.42, 0.8);
+  t3.rotation.y = -0.4;
+  trashGroup.add(t3);
+  const t4 = createTire(rng, 0.15);
+  t4.position.set(-5.95, heightAt(-5.95, 6.75) - 0.12, 6.75);
+  t4.rotation.x = 0.15;
+  trashGroup.add(t4);
+  const t5 = createTire(rng, 1.2);
+  const tx = 5.55, tz = 3.7;
+  t5.position.set(tx, heightAt(tx, tz) - 0.12, tz);
+  t5.rotation.y = 0.8;
+  trashGroup.add(t5);
+  const t6 = createTire(rng, 0.65);
+  const sx = -2.9, sz = 3.1;
+  t6.position.set(sx, heightAt(sx, sz) - 0.16, sz);
+  t6.rotation.y = 0.3;
+  trashGroup.add(t6);
+})();
+
+function createBarrel(rng, mat, open = false) {
+  const g = new THREE.Group();
+  const h = 1.12, rb = 0.48, rt = 0.5;
+  const bodyGeo = new THREE.CylinderGeometry(rt, rb, h, 12, 3, open);
+  jitterGeometry(bodyGeo, (x, y, z) => {
+    const a = Math.atan2(z, x);
+    const dent = 1 + 0.035 * Math.sin(a * 3 + 1.2) + 0.025 * Math.cos(y * 6 + a * 2);
+    return { x: x * dent, y, z: z * dent };
+  });
+  const body = new THREE.Mesh(bodyGeo, mat);
+  body.position.y = h / 2;
+  body.castShadow = true; body.receiveShadow = true;
+  g.add(body);
+  const bandMat = makeMat(0x5d4e3d, { roughness: 0.9, metalness: 0.2 });
+  [0.15, 0.56, 0.97].forEach((y, i) => {
+    const r1 = rb + (rt - rb) * (y / h);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(r1 + 0.025, r1 + 0.025, i === 1 ? 0.055 : 0.075, 12, 1, true), bandMat);
+    band.position.y = y;
+    band.castShadow = true;
+    g.add(band);
+  });
+  if (open) {
+    const dark = new THREE.Mesh(new THREE.CircleGeometry(rt - 0.05, 12), M.darkInteriorDouble);
+    dark.rotation.x = -Math.PI / 2;
+    dark.position.y = h - 0.08;
+    g.add(dark);
+  } else {
+    const lid = new THREE.Mesh(new THREE.CylinderGeometry(rt, rt, 0.045, 12), bandMat);
+    lid.position.y = h + 0.01;
+    lid.castShadow = true;
+    g.add(lid);
+    box(g, 0.2, 0.05, 0.12, M.rustDark, 0.16, h + 0.05, 0.1);
+  }
+  return g;
+}
+
+(function placeBarrels() {
+  const rng = mulberry32(4422);
+  const b1 = createBarrel(rng, M.rust, false);
+  const x1 = -2.55, z1 = 2.6;
+  b1.position.set(x1, heightAt(x1, z1) - 0.02, z1);
+  b1.rotation.set(0.03, 0.6, -0.06);
+  trashGroup.add(b1);
+
+  const b2 = createBarrel(rng, M.rustDark, true);
+  const x2 = -1.9, z2 = 3.15;
+  b2.rotation.set(0, 0.9, Math.PI / 2 - 0.1);
+  b2.position.set(x2, heightAt(x2, z2) + 0.48, z2);
+  trashGroup.add(b2);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Scrap metal                                                        */
+/* ------------------------------------------------------------------ */
+
+function bentPanelGeometry(w, h, t, bend, seed) {
+  const g = new THREE.BoxGeometry(w, h, t, 8, 4, 1);
+  jitterGeometry(g, (x, y, z) => {
+    const nx = x / (w / 2);
+    const ny = y / (h / 2);
+    const zz = z + bend * (1 - nx * nx) + bend * 0.25 * Math.sin(ny * 2.4 + seed);
+    const yy = y + 0.035 * Math.sin(nx * 3.0 + seed) * (1 - Math.abs(ny));
+    return { x: x + 0.02 * Math.sin(ny * 3 + seed), y: yy, z: zz };
+  });
+  return g;
+}
+
+function addScrapPanel(parent, x, z, w, h, rotY, tilt, seed, mat) {
+  const geo = bentPanelGeometry(w, h, 0.05, 0.14, seed);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, heightAt(x, z) + h * 0.45 - 0.06, z);
+  mesh.rotation.set(tilt, rotY, (seed % 0.2) - 0.1);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+(function scrapMetal() {
+  addScrapPanel(trashGroup, -3.75, -0.9, 1.5, 1.0, 0.7, -0.22, 1.1, M.rust);
+  addScrapPanel(trashGroup, 3.9, -3.2, 1.3, 0.85, -0.6, 0.12, 2.3, M.rustDark);
+  addScrapPanel(trashGroup, 0.6, -4.0, 1.1, 0.7, 0.3, 0.08, 3.1, M.rust);
+  addScrapPanel(trashGroup, 5.9, -2.8, 1.15, 0.8, 1.3, -0.15, 4.4, M.rustDark);
+
+  const rng = mulberry32(1984);
+  // short beams
+  const beam = (x, z, len, ry, rz, mat) => {
+    const m = box(trashGroup, 0.14, 0.14, len, mat, x, heightAt(x, z) + 0.09, z, 0, ry, rz);
+    return m;
+  };
+  beam(-4.9, 2.2, 1.3, 0.5, 0.03, M.rustDark);
+  beam(2.3, 2.7, 1.1, -0.7, -0.04, M.rust);
+  beam(2.7, -0.6, 0.95, 0.2, 0.05, M.rustDark);
+
+  // rusted pipes
+  const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 1.2, 6), M.rust);
+  p1.position.set(-1.9, heightAt(-1.9, 3.2) + 0.075, 3.2);
+  p1.rotation.set(Math.PI / 2, 0, 0.5);
+  p1.castShadow = true;
+  trashGroup.add(p1);
+  const p2 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.5, 6), M.rustDark);
+  p2.position.set(5.8, heightAt(5.8, -2.6) + 0.06, -2.6);
+  p2.rotation.set(Math.PI / 2, 0.4, -0.25);
+  p2.castShadow = true;
+  trashGroup.add(p2);
+
+  // bent pipe emerging from the main pile
+  const pipeCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(2.2, heightAt(2.2, 0.0) - 0.2, 0.0),
+    new THREE.Vector3(2.35, heightAt(2.2, 0.0) + 0.9, 0.15),
+    new THREE.Vector3(2.75, heightAt(2.2, 0.0) + 1.6, 0.55),
+    new THREE.Vector3(3.15, heightAt(2.2, 0.0) + 1.75, 0.9),
+  ]);
+  const pipe = new THREE.Mesh(new THREE.TubeGeometry(pipeCurve, 10, 0.075, 6, false), M.rust);
+  pipe.castShadow = true;
+  trashGroup.add(pipe);
+
+  // bent rebar pieces
+  for (let i = 0; i < 3; i++) {
+    const x = -2.0 + rng() * 4.0;
+    const z = -1.0 + rng() * 2.8;
+    const c = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(x, heightAt(x, z) + 0.02, z),
+      new THREE.Vector3(x + 0.25, heightAt(x, z) + 0.26, z + 0.12),
+      new THREE.Vector3(x + 0.55, heightAt(x, z) + 0.12, z + 0.3),
+    ]);
+    const bar = new THREE.Mesh(new THREE.TubeGeometry(c, 6, 0.025, 4, false), M.steelDark);
+    bar.castShadow = true;
+    trashGroup.add(bar);
+  }
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Shopping basket frame                                              */
+/* ------------------------------------------------------------------ */
+
+function createBasket() {
+  const g = new THREE.Group();
+  const w = 0.78, d = 0.55, h = 0.34;
+  const barMat = M.steelLight;
+  const bar = (bw, bh, bd, x, y, z, rx = 0, ry = 0, rz = 0) => box(g, bw, bh, bd, barMat, x, y, z, rx, ry, rz);
+  // base
+  bar(w, 0.035, 0.035, 0, 0, -d / 2);
+  bar(w, 0.035, 0.035, 0, 0, d / 2);
+  for (let i = 1; i < 5; i++) bar(0.03, 0.03, d, -w / 2 + (i / 5) * w, 0, 0);
+  // sides
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      bar(0.025, h, 0.025, sx * w / 2, h / 2, -d / 2 + (i / 3) * d, 0, 0, sx * 0.12);
+    }
+    bar(0.03, 0.03, d, sx * w / 2, h, 0, 0, 0, sx * 0.12);
+  }
+  for (const sz of [-1, 1]) {
+    for (let i = 0; i < 5; i++) bar(0.025, h, 0.025, -w / 2 + (i / 4) * w, h / 2, sz * d / 2, 0, 0, 0);
+    bar(w, 0.03, 0.03, 0, h, sz * d / 2);
+  }
+  // handle
+  bar(0.72, 0.035, 0.035, 0, h + 0.14, -d / 2 - 0.02);
+  bar(0.035, 0.15, 0.035, -w / 2, h + 0.06, -d / 2 - 0.02);
+  bar(0.035, 0.15, 0.035, w / 2, h + 0.06, -d / 2 - 0.02);
+  g.rotation.set(Math.PI, 0.4, 0.08);
+  return g;
+}
+
+(function placeBasket() {
+  const b = createBasket();
+  const x = 0.1, z = 4.1;
+  b.position.set(x, heightAt(x, z) + 0.28, z);
+  b.rotation.x = Math.PI - 0.18;
+  trashGroup.add(b);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Bottles and cans (instanced)                                       */
+/* ------------------------------------------------------------------ */
+
+(function placeBottles() {
+  const rng = mulberry32(5150);
+  const placements = [];
+  const bottleColors = [C.glassGreen, C.glassBrown, C.glassBlue, 0x6b7d4b, 0x3a4f3c];
+
+  // foreground bottles
+  for (let i = 0; i < 17; i++) {
+    let x = -8.4 + rng() * 7.0;
+    let z = 3.1 + rng() * 4.7;
+    if (((x - PUDDLE.x) / (PUDDLE.rx + 0.7)) ** 2 + ((z - PUDDLE.z) / (PUDDLE.rz + 0.65)) ** 2 < 1.3) {
+      x += 2.2;
+      if (x > -2.5) x = -2.5 - rng() * 1.2;
+    }
+    placements.push({ x, z, upright: rng() > 0.58, s: 0.5 + rng() * 0.24 });
+  }
+  // near the mound and dumpster
+  for (let i = 0; i < 10; i++) {
+    let x, z;
+    if (i < 6) {
+      const p = randomMoundPoint(rng, 4.2, 0.3);
+      x = p.x; z = p.z;
+    } else {
+      x = 4.4 + rng() * 2.1;
+      z = 1.8 + rng() * 1.5;
+    }
+    placements.push({ x, z, upright: rng() > 0.78, s: 0.48 + rng() * 0.22 });
+  }
+
+  const mesh = new THREE.InstancedMesh(bottleGeom, new THREE.MeshStandardMaterial({
+    color: 0xffffff, flatShading: true, roughness: 0.3, metalness: 0.06
+  }), placements.length);
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  const qLay = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+  const qYaw = new THREE.Quaternion();
+
+  placements.forEach((p, i) => {
+    const y0 = heightAt(p.x, p.z);
+    const s = p.s;
+    if (p.upright) {
+      dummy.position.set(p.x, y0 - 0.015, p.z);
+      dummy.rotation.set(0, rng() * TAU, 0);
+    } else {
+      qYaw.setFromAxisAngle(UP, rng() * TAU);
+      dummy.quaternion.copy(qYaw).multiply(qLay);
+      dummy.position.set(p.x, y0 + 0.2 * s, p.z);
+    }
+    dummy.scale.set(s, s, s);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    color.setHex(bottleColors[Math.floor(rng() * bottleColors.length)]);
+    color.offsetHSL(0, 0, (rng() - 0.5) * 0.04);
+    mesh.setColorAt(i, color);
+  });
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  trashGroup.add(mesh);
+})();
+
+(function placeCans() {
+  const rng = mulberry32(7263);
+  const spots = [];
+  for (let i = 0; i < 9; i++) {
+    const p = randomMoundPoint(rng, 4.6, 0.22);
+    spots.push({ x: p.x, z: p.z, upright: rng() > 0.65 });
+  }
+  for (let i = 0; i < 6; i++) {
+    spots.push({ x: -6.0 + rng() * 3.8, z: 4.0 + rng() * 3.0, upright: rng() > 0.7 });
+  }
+  for (let i = 0; i < 5; i++) {
+    spots.push({ x: 3.9 + rng() * 1.8, z: 1.3 + rng() * 1.6, upright: rng() > 0.6 });
+  }
+  const colors = [0x9a9a90, 0x8b5040, 0x566d72, 0x9b8c67, 0x6b6f63];
+  const mesh = new THREE.InstancedMesh(canGeom, new THREE.MeshStandardMaterial({
+    color: 0xffffff, flatShading: true, roughness: 0.52, metalness: 0.5
+  }), spots.length);
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  const qLay = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+  const qYaw = new THREE.Quaternion();
+  spots.forEach((p, i) => {
+    const y0 = heightAt(p.x, p.z);
+    const s = 0.8 + rng() * 0.3;
+    if (p.upright) {
+      dummy.position.set(p.x, y0 - 0.01, p.z);
+      dummy.rotation.set(0, rng() * TAU, 0);
+    } else {
+      qYaw.setFromAxisAngle(UP, rng() * TAU);
+      dummy.quaternion.copy(qYaw).multiply(qLay);
+      dummy.position.set(p.x, y0 + 0.16 * s, p.z);
+    }
+    dummy.scale.set(s, s, s);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    color.setHex(colors[Math.floor(rng() * colors.length)]);
+    mesh.setColorAt(i, color);
+  });
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  trashGroup.add(mesh);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Secondary piles                                                    */
+/* ------------------------------------------------------------------ */
+
+function fillSmallPile(cx, cz, radius, seed, bagCount, boxCount) {
+  const rng = mulberry32(seed);
+  for (let i = 0; i < bagCount; i++) {
+    const a = rng() * TAU;
+    const r = Math.sqrt(rng()) * radius;
+    const x = cx + Math.cos(a) * r;
+    const z = cz + Math.sin(a) * r * 0.82;
+    const bag = createBag(rng, 0.48 + rng() * 0.45);
+    placeTrashOnMound(bag, x, z, rng, 0.05);
+    trashGroup.add(bag);
+  }
+  for (let i = 0; i < boxCount; i++) {
+    const a = rng() * TAU;
+    const r = Math.sqrt(rng()) * radius * 0.8;
+    const x = cx + Math.cos(a) * r;
+    const z = cz + Math.sin(a) * r;
+    const b = createCardboardBox(rng, rng() > 0.5);
+    placeTrashOnMound(b, x, z, rng, 0.03);
+    trashGroup.add(b);
+  }
+}
+fillSmallPile(-8.1, -2.6, 2.2, 9941, 8, 2);
+fillSmallPile(6.4, -4.5, 2.5, 1187, 9, 2);
+
+// a couple of tires against the back piles
+(function pileTires() {
+  const rng = mulberry32(616);
+  const t = createTire(rng, 1.1);
+  t.position.set(7.15, heightAt(7.15, -5.2) + 0.4, -5.2);
+  t.rotation.y = 0.4;
+  trashGroup.add(t);
+  const t2 = createTire(rng, 0.7);
+  t2.position.set(-8.8, heightAt(-8.8, -3.6) + 0.28, -3.6);
+  t2.rotation.y = 1.1;
+  trashGroup.add(t2);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Refrigerator                                                       */
+/* ------------------------------------------------------------------ */
+
+function createFridge() {
+  const g = new THREE.Group();
+  const W = 1.5, H = 2.2, D = 1.0, t = 0.09;
+  // shell
+  box(g, W, H, t, M.cream, 0, H / 2, -D / 2 + t / 2);
+  box(g, t, H, D, M.cream, -W / 2 + t / 2, H / 2, 0);
+  box(g, t, H, D, M.cream, W / 2 - t / 2, H / 2, 0);
+  box(g, W, t, D, M.cream, 0, H - t / 2, 0);
+  box(g, W, t, D, M.cream, 0, t / 2, 0);
+
+  // dark interior (inverted box)
+  const inner = new THREE.Mesh(new THREE.BoxGeometry(W - 0.18, H - 0.26, D - 0.14), M.darkInterior);
+  inner.position.set(0, H / 2, 0);
+  g.add(inner);
+
+  // shelves
+  const shelfMat = makeMat(0xb7ad94, { roughness: 0.8 });
+  [0.72, 1.35].forEach((y, i) => {
+    box(g, W - 0.22, 0.035, D - 0.24, shelfMat, 0, y, 0.025);
+    box(g, W - 0.22, 0.075, 0.03, shelfMat, 0, y + 0.04, D / 2 - 0.16 - i * 0.02);
+  });
+  box(g, W - 0.24, 0.02, D - 0.3, M.steelDark, 0, 0.18, 0);
+
+  // compressor grille
+  box(g, W - 0.2, 0.22, 0.03, M.steelDark, 0, 0.16, -D / 2 + 0.08);
+  for (let i = 0; i < 5; i++) {
+    box(g, 0.06, 0.18, 0.02, M.creamDark, -0.48 + i * 0.24, 0.16, -D / 2 + 0.1);
+  }
+
+  // door, hinged on the left, hanging open
+  const doorPivot = new THREE.Group();
+  doorPivot.position.set(-W / 2 + 0.03, H / 2, D / 2 - 0.02);
+  const door = box(doorPivot, W - 0.04, H - 0.12, 0.085, M.cream, (W - 0.04) / 2, 0, 0);
+  box(doorPivot, 0.055, 0.52, 0.07, M.steelLight, W - 0.14, 0.08, 0.08);
+  box(doorPivot, 0.11, 0.11, 0.07, M.rustDark, 0.2, -0.82, 0.05);
+  box(doorPivot, 0.08, 0.16, 0.07, M.rust, 0.78, -0.95, 0.05);
+  // inner door panel
+  box(doorPivot, W - 0.12, H - 0.2, 0.02, M.creamDark, (W - 0.04) / 2, 0, -0.05);
+  doorPivot.rotation.y = -2.12;
+  g.add(doorPivot);
+
+  // rust at the base and along an edge
+  box(g, 0.35, 0.18, 0.012, M.rust, -0.42, 0.33, D / 2 + 0.005);
+  box(g, 0.18, 0.42, 0.012, M.rustDark, 0.58, 0.5, D / 2 + 0.005);
+  box(g, 0.012, 0.3, 0.4, M.rust, W / 2 + 0.005, 0.35, -0.2);
+  box(g, 0.012, 0.22, 0.28, M.rust, -W / 2 - 0.005, 0.4, 0.22);
+
+  // feet
+  for (const fx of [-0.55, 0.55]) for (const fz of [-0.32, 0.32]) {
+    box(g, 0.14, 0.1, 0.14, M.steelDark, fx, 0.05, fz);
+  }
+  return g;
+}
+
+(function placeFridge() {
+  const f = createFridge();
+  const x = -4.75, z = 0.5;
+  f.position.set(x, heightAt(x, z) - 0.12, z);
+  f.rotation.set(-0.05, 0.78, 0.08);
+  world.add(f);
+  // support debris at the base
+  const rng = mulberry32(481);
+  const bag = createBag(rng, 0.55, 'charcoal');
+  bag.position.set(x + 0.75, heightAt(x + 0.75, z + 0.3) - 0.03, z + 0.3);
+  trashGroup.add(bag);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Broken sofa                                                        */
+/* ------------------------------------------------------------------ */
+
+function createSofa() {
+  const g = new THREE.Group();
+  const W = 3.05, D = 1.35;
+  // wooden feet, a little uneven
+  const legs = [[-1.3, 0.5], [1.3, 0.45], [-1.3, -0.5], [1.15, -0.5]];
+  legs.forEach(([lx, lz], i) => {
+    box(g, 0.13, i === 3 ? 0.22 : 0.3, 0.13, M.wood, lx, i === 3 ? 0.11 : 0.15, lz, i === 3 ? 0.25 : 0.02, 0, 0.04);
+  });
+  // sagging frame base
+  box(g, W - 0.16, 0.26, D - 0.18, M.upholsteryDark, 0, 0.38, 0, 0.02, 0, 0);
+  box(g, W - 0.3, 0.12, D - 0.32, M.upholsteryLight, 0, 0.53, 0.02);
+  // seat cushions
+  box(g, 1.28, 0.3, 1.1, M.upholstery, -0.68, 0.69, 0.05, 0.06, 0.02, 0.025);
+  const c2 = box(g, 1.28, 0.28, 1.05, M.upholsteryLight, 0.64, 0.66, 0.03, 0.1, -0.03, -0.035);
+  c2.scale.set(1.0, 0.9, 0.96);
+  // backrest frame and two leaning back cushions
+  box(g, W - 0.22, 0.62, 0.22, M.upholsteryDark, 0, 0.98, -0.52, -0.17, 0, 0);
+  box(g, 1.3, 0.72, 0.2, M.upholstery, -0.68, 1.12, -0.45, -0.19, 0.02, 0.02);
+  box(g, 1.26, 0.66, 0.2, M.upholsteryLight, 0.64, 1.09, -0.45, -0.13, 0.03, -0.04);
+  // armrests; the right one is badly damaged
+  box(g, 0.36, 0.7, 1.32, M.upholsteryDark, -1.4, 0.69, -0.02, 0, 0, 0.03);
+  box(g, 0.36, 0.18, 1.3, M.upholstery, -1.4, 1.02, -0.02, 0.02, 0, 0.03);
+  box(g, 0.34, 0.36, 1.2, M.upholstery, 1.38, 0.56, 0.02, 0.04, 0.08, -0.06);
+  box(g, 0.26, 0.5, 0.24, M.upholsteryDark, 1.36, 0.84, -0.34, 0.24, 0.12, 0.25);
+  // exposed wooden frame and a broken leg at the damaged end
+  box(g, 0.12, 0.13, 1.38, M.wood, 1.31, 0.34, 0.06, 0.02, 0, -0.05);
+  box(g, 0.11, 0.4, 0.11, M.wood, 1.08, 0.16, 0.58, 0.28, 0.1, 0.16);
+  // tear through the right cushion
+  box(g, 0.36, 0.035, 0.26, M.creamDark, 0.55, 0.83, 0.24, 0.08, 0.2, 0.02);
+  box(g, 0.2, 0.025, 0.16, M.wood, 0.5, 0.85, 0.4, 0.02, 0.5, 0);
+  return g;
+}
+
+(function placeSofa() {
+  const s = createSofa();
+  const x = -7.2, z = 2.0;
+  s.position.set(x, heightAt(x, z) - 0.08, z);
+  s.rotation.set(-0.12, 0.7, 0.06);
+  s.scale.setScalar(1.1);
+  world.add(s);
+  // loose cushion
+  box(world, 0.65, 0.18, 0.62, M.upholstery, -4.6, heightAt(-4.6, 3.0) + 0.08, 3.0, 0.1, 0.6, 0.12);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Tipped dumpster                                                    */
+/* ------------------------------------------------------------------ */
+
+function createDumpster() {
+  const g = new THREE.Group();
+  const W = 2.9, D = 1.9, bodyB = 0.36, bodyT = 2.08, taper = 0.16;
+  const bw = W * (1 - taper), bd = D * (1 - taper);
+
+  const verts = [
+    // bottom (y bodyB)
+    [-bw / 2, bodyB, -bd / 2], [bw / 2, bodyB, -bd / 2], [bw / 2, bodyB, bd / 2], [-bw / 2, bodyB, bd / 2],
+    // top
+    [-W / 2, bodyT, -D / 2], [W / 2, bodyT, -D / 2], [W / 2, bodyT, D / 2], [-W / 2, bodyT, D / 2],
+  ];
+  const faces = [
+    [0, 1, 2], [0, 2, 3],          // bottom
+    [4, 6, 5], [4, 7, 6],          // top (dark floor?)
+    [0, 1, 5], [0, 5, 4],          // back
+    [3, 7, 6], [3, 6, 2],          // front
+    [0, 4, 7], [0, 7, 3],          // left
+    [1, 2, 6], [1, 6, 5],          // right
+  ];
+  const pos = [];
+  for (const f of faces) for (const i of f) pos.push(...verts[i]);
+  const bodyGeo = new THREE.BufferGeometry();
+  bodyGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  bodyGeo.computeVertexNormals();
+  const bodyMat = makeMat(0x697065, { roughness: 0.8, metalness: 0.32 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.castShadow = true; body.receiveShadow = true;
+  g.add(body);
+
+  // dark interior
+  const inner = new THREE.Mesh(new THREE.BoxGeometry(W - 0.28, 1.5, D - 0.28), M.darkInterior);
+  inner.position.set(0, 1.3, 0);
+  g.add(inner);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.3, D - 0.3), makeMat(0x24231e));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = bodyB + 0.08;
+  g.add(floor);
+
+  // rim
+  const rimMat = makeMat(0x565847, { roughness: 0.85, metalness: 0.3 });
+  box(g, W + 0.1, 0.11, 0.13, rimMat, 0, bodyT, -D / 2);
+  box(g, W + 0.1, 0.11, 0.13, rimMat, 0, bodyT, D / 2);
+  box(g, 0.13, 0.11, D, rimMat, -W / 2, bodyT, 0);
+  box(g, 0.13, 0.11, D, rimMat, W / 2, bodyT, 0);
+
+  // reinforced corners
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const corner = box(g, 0.13, bodyT - bodyB, 0.13, rimMat,
+      sx * (bw / 2 - 0.05) * 0.92, (bodyT + bodyB) / 2, sz * (bd / 2 - 0.05) * 0.92);
+    corner.rotation.z = -sx * 0.045;
+    corner.rotation.x = sz * 0.03;
+  }
+
+  // horizontal reinforcement bands
+  for (const y of [0.8, 1.55]) {
+    box(g, W + 0.04, 0.09, 0.07, rimMat, 0, y, -D / 2 + 0.02);
+    box(g, W + 0.04, 0.09, 0.07, rimMat, 0, y, D / 2 - 0.02);
+    box(g, 0.07, 0.09, D, rimMat, -W / 2 + 0.02, y, 0);
+    box(g, 0.07, 0.09, D, rimMat, W / 2 - 0.02, y, 0);
+  }
+
+  // rust patches
+  const rustPatches = [
+    [0.7, 0.9, D / 2 + 0.005, 0.5, 0.35], [-0.9, 1.45, D / 2 + 0.005, 0.35, 0.24],
+    [0.3, 0.65, -D / 2 - 0.005, 0.6, 0.3], [W / 2 + 0.005, 1.2, 0.2, 0.4, 0.5],
+  ];
+  rustPatches.forEach(([x, y, z, w, h], i) => {
+    const axis = Math.abs(z) > D / 2 - 0.1 ? 'z' : 'x';
+    if (axis === 'z') box(g, w, h, 0.012, i % 2 ? M.rust : M.rustDark, x, y, z);
+    else box(g, 0.012, h, w, M.rust, z, y, x);
+  });
+
+  // rear access door outline and latch
+  box(g, 1.22, 1.08, 0.018, rimMat, 0, 1.24, -D / 2 - 0.012);
+  box(g, 0.035, 1.04, 0.022, M.rustDark, 0.38, 1.24, -D / 2 - 0.022);
+  box(g, 0.16, 0.05, 0.035, M.steelLight, -0.42, 1.2, -D / 2 - 0.035);
+  box(g, 0.03, 0.22, 0.025, M.rustDark, 0.5, 0.55, D / 2 + 0.006);
+  box(g, 0.22, 0.03, 0.025, M.rust, -0.7, 1.78, -D / 2 - 0.006);
+
+  // wheels
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const wheel = cyl(g, 0.23, 0.23, 0.17, 10, M.rubber, sx * 1.17, 0.23, sz * 0.72, 0, 0, Math.PI / 2);
+    const hub = cyl(g, 0.1, 0.1, 0.185, 8, M.steelDark, sx * 1.17, 0.23, sz * 0.72, 0, 0, Math.PI / 2);
+  }
+
+  // hinged lid, partly open
+  const lidGroup = new THREE.Group();
+  lidGroup.position.set(0, bodyT + 0.08, -D / 2);
+  const lid = box(lidGroup, W + 0.1, 0.1, D + 0.1, makeMat(0x72786a, { roughness: 0.82, metalness: 0.28 }),
+    0, 0, D / 2);
+  for (let i = -1; i <= 1; i++) {
+    box(lidGroup, W - 0.1, 0.035, 0.07, rimMat, 0, 0.07, D / 2 + i * 0.55);
+  }
+  box(lidGroup, 0.35, 0.012, 0.45, M.rust, 0.7, 0.055, D * 0.72, 0, 0.3, 0);
+  box(lidGroup, 0.22, 0.012, 0.3, M.rustDark, -0.8, 0.055, D * 0.32, 0, -0.2, 0);
+  lidGroup.rotation.x = -0.55;
+  g.add(lidGroup);
+
+  // bags inside
+  const rng = mulberry32(3311);
+  for (let i = 0; i < 4; i++) {
+    const bag = createBag(rng, 0.42 + rng() * 0.18, i % 2 ? 'charcoal' : 'olive');
+    bag.position.set(-0.7 + i * 0.45, bodyT - 0.36 + rng() * 0.12, -0.2 + (rng() - 0.5) * 0.7);
+    bag.rotation.z = (rng() - 0.5) * 0.4;
+    g.add(bag);
+  }
+  return g;
+}
+
+(function placeDumpster() {
+  const d = createDumpster();
+  const x = 7.8, z = 0.9;
+  d.position.set(x, heightAt(x, z) - 0.02, z);
+  d.rotation.set(-0.03, -0.45, 0.12);
+  world.add(d);
+
+  // support debris under the lifted wheels
+  const rng = mulberry32(1818);
+  const b = createBag(rng, 0.55, 'charcoal');
+  b.position.set(x - 1.2, heightAt(x - 1.2, z + 0.7) - 0.02, z + 0.7);
+  trashGroup.add(b);
+
+  // spill
+  const spill = [
+    [6.2, 1.55, 'charcoal', 0.7], [5.8, 0.95, 'olive', 0.6], [6.75, 2.35, 'blue', 0.62],
+    [6.0, 2.25, 'charcoal', 0.52], [6.5, 1.75, 'olive', 0.48],
+  ];
+  for (const [sx, sz, key, s] of spill) {
+    const bag = createBag(rng, s, key);
+    bag.position.set(sx, heightAt(sx, sz) - 0.03, sz);
+    bag.rotation.set((rng() - 0.5) * 0.3, rng() * TAU, (rng() - 0.5) * 0.3);
+    trashGroup.add(bag);
+  }
+  // spilled cardboard and cans near dumpster
+  const box1 = createCardboardBox(rng, true);
+  box1.position.set(3.6, heightAt(3.6, 2.2) + 0.02, 2.2);
+  box1.rotation.set(0.1, -0.5, 0.05);
+  trashGroup.add(box1);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Small storytelling props                                           */
+/* ------------------------------------------------------------------ */
+
+function createBucket() {
+  const g = new THREE.Group();
+  const pts = [
+    new THREE.Vector2(0, 0.02), new THREE.Vector2(0.16, 0.02),
+    new THREE.Vector2(0.235, 0.36), new THREE.Vector2(0.25, 0.37),
+  ];
+  const geo = new THREE.LatheGeometry(pts, 12);
+  const body = new THREE.Mesh(geo, M.plasticBlue);
+  body.castShadow = true; body.receiveShadow = true;
+  g.add(body);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.245, 0.022, 4, 12), M.plasticBlue);
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = 0.37;
+  g.add(rim);
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.018, 4, 10, Math.PI), M.steel);
+  handle.position.y = 0.37;
+  handle.rotation.z = 0.12;
+  g.add(handle);
+  return g;
+}
+
+function createCrate() {
+  const g = new THREE.Group();
+  const w = 0.85, h = 0.45, d = 0.65;
+  const mat = M.plasticGreen;
+  // corner posts
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    box(g, 0.06, h, 0.06, mat, sx * w / 2, h / 2, sz * d / 2);
+  }
+  // horizontal bars
+  for (const y of [0.1, 0.25, 0.42]) {
+    box(g, w, 0.045, 0.05, mat, 0, y, -d / 2);
+    box(g, w, 0.045, 0.05, mat, 0, y, d / 2);
+    box(g, 0.05, 0.045, d, mat, -w / 2, y, 0);
+    box(g, 0.05, 0.045, d, mat, w / 2, y, 0);
+  }
+  // vertical slats on long sides
+  for (let i = 1; i < 5; i++) {
+    box(g, 0.045, h * 0.78, 0.04, mat, -w / 2 + (i / 5) * w, h * 0.32, -d / 2);
+    box(g, 0.045, h * 0.78, 0.04, mat, -w / 2 + (i / 5) * w, h * 0.32, d / 2);
+  }
+  // base
+  box(g, w, 0.06, d, mat, 0, 0.03, 0);
+  return g;
+}
+
+function createBoot() {
+  const g = new THREE.Group();
+  const leather = makeMat(0x5a4532, { roughness: 0.96 });
+  const sole = makeMat(0x2e2a24, { roughness: 1 });
+  box(g, 0.32, 0.09, 0.68, sole, 0, 0.045, 0.06);
+  box(g, 0.3, 0.22, 0.46, leather, 0, 0.18, 0.16, 0.02, 0, 0);
+  // toe
+  box(g, 0.26, 0.16, 0.2, leather, 0, 0.14, 0.42, 0.14, 0, 0);
+  // ankle
+  cyl(g, 0.13, 0.15, 0.32, 8, leather, 0, 0.38, -0.1, 0.16, 0, 0);
+  // opening
+  const open = new THREE.Mesh(new THREE.CircleGeometry(0.115, 8), M.darkInteriorDouble);
+  open.rotation.x = -Math.PI / 2 + 0.16;
+  open.position.set(0, 0.54, -0.12);
+  g.add(open);
+  // laces
+  for (let i = 0; i < 3; i++) box(g, 0.17, 0.018, 0.02, M.creamDark, 0, 0.26 + i * 0.05, 0.13 + i * 0.02);
+  return g;
+}
+
+(function storytellingProps() {
+  const rng = mulberry32(2929);
+
+  const bucket = createBucket();
+  const bx = -5.25, bz = 6.55;
+  bucket.position.set(bx, heightAt(bx, bz) + 0.01, bz);
+  bucket.rotation.set(0.04, 1.1, 0.03);
+  world.add(bucket);
+
+  const crate = createCrate();
+  const cx = 0.25, cz = 6.5;
+  crate.position.set(cx, heightAt(cx, cz) + 0.01, cz);
+  crate.rotation.set(0.02, 0.7, 0.02);
+  world.add(crate);
+
+  const boot = createBoot();
+  const sx = 5.85, sz = 4.35;
+  boot.position.set(sx, heightAt(sx, sz) + 0.02, sz);
+  boot.rotation.set(0.05, 2.25, 0.12);
+  boot.scale.setScalar(1.15);
+  world.add(boot);
+
+  // a small loose can cluster near the crate
+  for (let i = 0; i < 2; i++) {
+    const x = 1.1 + i * 0.22, z = 6.1 + i * 0.12;
+    const m = new THREE.Mesh(canGeom, i ? M.steel : M.rust);
+    m.position.set(x, heightAt(x, z) + 0.17, z);
+    m.rotation.set(Math.PI / 2, i * 0.7, 0);
+    m.castShadow = true;
+    world.add(m);
+  }
+
+  // crushed cans
+  const crushed = [[-2.35, 4.8, 1.1], [0.9, 5.3, 0.2], [6.25, 2.7, 2.2], [1.15, 1.85, 1.6]];
+  crushed.forEach(([x, z, yaw], i) => {
+    const m = new THREE.Mesh(canGeom, i % 2 ? M.rust : M.steel);
+    m.scale.set(0.9, 0.92, 0.52);
+    m.position.set(x, heightAt(x, z) + 0.12, z);
+    m.rotation.set(0.08, yaw, Math.PI / 2 - 0.12);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    world.add(m);
+  });
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Foreground odds and ends                                           */
+/* ------------------------------------------------------------------ */
+
+(function foregroundExtras() {
+  const rng = mulberry32(9341);
+
+  const t = createTire(rng, 0.55);
+  const tx = 6.35, tz = 5.05;
+  t.position.set(tx, heightAt(tx, tz) - 0.2, tz);
+  t.rotation.y = -0.3;
+  world.add(t);
+
+  const glassMats = [
+    makeMat(0x3c5440, { roughness: 0.3, metalness: 0.05 }),
+    makeMat(0x4b3527, { roughness: 0.3, metalness: 0.05 }),
+  ];
+  const spots = [[5.55, 5.75, true, 0.7], [6.75, 4.4, false, 0.62], [5.0, 6.15, false, 0.55]];
+  spots.forEach(([x, z, upright, s], i) => {
+    const b = new THREE.Mesh(bottleGeom, glassMats[i % 2]);
+    b.scale.setScalar(s);
+    b.position.set(x, heightAt(x, z) + (upright ? -0.01 : 0.18 * s), z);
+    if (!upright) b.rotation.set(0.1, rng() * TAU, Math.PI / 2);
+    else b.rotation.y = rng() * TAU;
+    b.castShadow = true;
+    b.receiveShadow = true;
+    world.add(b);
+  });
+
+  const can1 = new THREE.Mesh(canGeom, M.steel);
+  can1.position.set(6.0, heightAt(6.0, 6.0) + 0.16, 6.0);
+  can1.rotation.set(Math.PI / 2, 0.4, 0);
+  can1.castShadow = true;
+  world.add(can1);
+
+  const scrapBox = createCardboardBox(rng, true);
+  scrapBox.position.set(4.5, heightAt(4.5, 6.15) + 0.02, 6.15);
+  scrapBox.rotation.set(0.14, -0.8, 0.08);
+  world.add(scrapBox);
+
+  // a couple of embedded stones on the mound flank
+  for (let i = 0; i < 4; i++) {
+    const x = -3.5 + rng() * 6.5;
+    const z = 0.3 + rng() * 2.5;
+    const s = 0.13 + rng() * 0.16;
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rockMats[i % rockMats.length]);
+    rock.position.set(x, heightAt(x, z) - s * 0.15, z);
+    rock.rotation.set(rng() * TAU, rng() * TAU, rng() * TAU);
+    rock.castShadow = true;
+    rock.receiveShadow = true;
+    world.add(rock);
+  }
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Perimeter rocks                                                    */
+/* ------------------------------------------------------------------ */
+
+(function rocks() {
+  const rng = mulberry32(454);
+  for (let i = 0; i < 22; i++) {
+    const a = rng() * TAU;
+    const t = 0.76 + rng() * 0.18;
+    const rf = outline(a);
+    const x = Math.cos(a) * RX * rf * t;
+    const z = Math.sin(a) * RZ * rf * t;
+    const s = 0.16 + rng() * 0.42;
+    const geo = new THREE.DodecahedronGeometry(s, 0);
+    jitterGeometry(geo, (vx, vy, vz) => ({
+      x: vx * (0.85 + rng() * 0.3), y: vy * (0.55 + rng() * 0.35), z: vz * (0.85 + rng() * 0.3)
+    }));
+    const rock = new THREE.Mesh(geo, rockMats[i % rockMats.length]);
+    rock.position.set(x, heightAt(x, z) - s * 0.22, z);
+    rock.rotation.set(rng() * TAU, rng() * TAU, rng() * TAU);
+    rock.castShadow = true; rock.receiveShadow = true;
+    world.add(rock);
+  }
+
+  // angular rocks along the path
+  for (let i = 0; i < 8; i++) {
+    const t = 0.1 + rng() * 0.8;
+    const p = pathCurve.getPointAt(t);
+    const tangent = pathCurve.getTangentAt(t);
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x);
+    const off = (rng() > 0.5 ? 1 : -1) * (1.45 + rng() * 0.6);
+    const x = p.x + side.x * off;
+    const z = p.z + side.z * off;
+    const s = 0.1 + rng() * 0.2;
+    const geo = new THREE.DodecahedronGeometry(s, 0);
+    jitterGeometry(geo, (vx, vy, vz) => ({ x: vx, y: vy * 0.7, z: vz * (0.8 + rng() * 0.4) }));
+    const rock = new THREE.Mesh(geo, rockMats[(i + 1) % rockMats.length]);
+    rock.position.set(x, heightAt(x, z) - 0.04, z);
+    rock.rotation.set(rng() * TAU, rng() * TAU, rng() * TAU);
+    rock.castShadow = true; rock.receiveShadow = true;
+    world.add(rock);
+  }
+
+  // stones half submerged in the puddle
+  const wetMat = makeMat(0x4a4940, { roughness: 0.75, metalness: 0.05 });
+  for (let i = 0; i < 6; i++) {
+    const a = rng() * TAU;
+    const r = 0.9 + rng() * 1.1;
+    const x = PUDDLE.x + Math.cos(a) * r;
+    const z = PUDDLE.z + Math.sin(a) * r * 0.62;
+    const s = 0.1 + rng() * 0.18;
+    const geo = new THREE.DodecahedronGeometry(s, 0);
+    const rock = new THREE.Mesh(geo, wetMat);
+    rock.position.set(x, waterY - s * 0.35, z);
+    rock.rotation.set(rng() * TAU, rng() * TAU, rng() * TAU);
+    rock.castShadow = true; rock.receiveShadow = true;
+    world.add(rock);
+  }
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Dry vegetation geometry                                            */
+/* ------------------------------------------------------------------ */
+
+const grassGeoms = [];
+(function buildGrassGeoms() {
+  for (let v = 0; v < 4; v++) {
+    const rng = mulberry32(6100 + v * 31);
+    const parts = [];
+    const blades = 6 + Math.floor(rng() * 4);
+    for (let i = 0; i < blades; i++) {
+      const h = 0.38 + rng() * 0.5;
+      const g = new THREE.ConeGeometry(0.022 + rng() * 0.018, h, 3, 1);
+      g.translate(0, h / 2, 0);
+      g.rotateX((rng() - 0.5) * 0.8);
+      g.rotateZ((rng() - 0.5) * 0.9);
+      g.translate((rng() - 0.5) * 0.18, 0, (rng() - 0.5) * 0.18);
+      parts.push(g);
+    }
+    grassGeoms.push(mergeGeometries(parts, false));
+  }
+})();
+
+const swayingGrass = [];
+
+function createGrassTuft(rng, scale = 1, mat = M.grassDry) {
+  const mesh = new THREE.Mesh(grassGeoms[Math.floor(rng() * grassGeoms.length)], mat);
+  mesh.scale.setScalar(scale);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Damaged fence                                                      */
+/* ------------------------------------------------------------------ */
+
+(function fence() {
+  const postPoints = [
+    [2.2, -7.1], [3.35, -7.28], [4.55, -7.4], [5.8, -7.45], [7.05, -7.35], [8.25, -7.2],
+  ];
+  const rng = mulberry32(556);
+  const postMat = makeMat(0x6d6a5a, { roughness: 0.8, metalness: 0.4 });
+  const postData = postPoints.map(([x, z], i) => {
+    const h = 2.15 + rng() * 0.55;
+    const lean = (rng() - 0.5) * 0.13;
+    const y = heightAt(x, z);
+    const post = box(world, 0.1, h, 0.1, postMat, x, y + h / 2, z, lean, rng() * 0.3, (rng() - 0.5) * 0.13);
+    const cap = box(world, 0.15, 0.06, 0.15, M.rustDark, x, y + h, z);
+    return { x, z, h, y, lean };
+  });
+
+  const wireMats = [];
+  const wireTransforms = [];
+  const addWireMatrix = (pos, quat, scale) => {
+    const m = new THREE.Matrix4().compose(pos, quat, scale);
+    wireTransforms.push(m);
+  };
+  const qSpan = new THREE.Quaternion();
+  const zAxis = new THREE.Vector3(0, 1, 0);
+
+  function addSpan(a, b, sag, bent) {
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const len = Math.hypot(dx, dz);
+    const yaw = Math.atan2(dx, dz);
+    qSpan.setFromAxisAngle(zAxis, yaw);
+    const levels = [0.32, 0.62, 0.86, 0.99];
+    for (const lv of levels) {
+      const y1 = a.y + a.h * lv;
+      const y2 = b.y + b.h * lv;
+      const segs = bent ? 4 : 1;
+      for (let s = 0; s < segs; s++) {
+        const t0 = s / segs, t1 = (s + 1) / segs;
+        const x0 = lerp(a.x, b.x, t0), z0 = lerp(a.z, b.z, t0);
+        const x1 = lerp(a.x, b.x, t1), z1 = lerp(a.z, b.z, t1);
+        const yA = lerp(y1, y2, t0) + (bent ? -Math.sin(t0 * Math.PI) * sag : 0);
+        const yB = lerp(y1, y2, t1) + (bent ? -Math.sin(t1 * Math.PI) * sag : 0);
+        const l = Math.hypot(x1 - x0, z1 - z0, yB - yA);
+        const mid = new THREE.Vector3((x0 + x1) / 2, (yA + yB) / 2, (z0 + z1) / 2);
+        const dir = new THREE.Vector3(x1 - x0, yB - yA, z1 - z0).normalize();
+        const q = new THREE.Quaternion().setFromUnitVectors(
+          new THREE.Vector3(1, 0, 0), dir
+        );
+        addWireMatrix(mid, q, new THREE.Vector3(l, 0.028, 0.028));
+      }
+    }
+    // vertical wires
+    const verts = 5;
+    for (let i = 1; i <= verts; i++) {
+      const t = i / (verts + 1);
+      const x = lerp(a.x, b.x, t), z = lerp(a.z, b.z, t);
+      const yBase = heightAt(x, z);
+      const yTop = lerp(a.y + a.h * 0.99, b.y + b.h * 0.99, t) + (bent ? -Math.sin(t * Math.PI) * sag : 0);
+      const h = yTop - yBase;
+      const q = new THREE.Quaternion().setFromAxisAngle(zAxis, bent ? (rng() - 0.5) * 0.12 : 0);
+      addWireMatrix(new THREE.Vector3(x, (yBase + yTop) / 2, z), q, new THREE.Vector3(0.024, h, 0.024));
+    }
+  }
+
+  // one missing span (between 5.8 and 7.05), one bent span (between 3.35 and 4.55)
+  addSpan(postData[0], postData[1], 0.06, false);
+  addSpan(postData[1], postData[2], 0.34, true);
+  addSpan(postData[2], postData[3], 0.05, false);
+  // gap: no span 3 -> 4
+  addSpan(postData[4], postData[5], 0.12, true);
+
+  const wireMesh = new THREE.InstancedMesh(boxGeom(1, 0.028, 0.028), M.fence, wireTransforms.length);
+  wireTransforms.forEach((m, i) => wireMesh.setMatrixAt(i, m));
+  wireMesh.castShadow = true;
+  wireMesh.receiveShadow = true;
+  wireMesh.frustumCulled = false;
+  world.add(wireMesh);
+
+  // loose bent wires hanging from the gap
+  const hanging = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(5.8, heightAt(5.8, -7.45) + 1.55, -7.45),
+    new THREE.Vector3(6.1, heightAt(6.1, -7.45) + 1.2, -7.4),
+    new THREE.Vector3(6.4, heightAt(6.4, -7.45) + 1.35, -7.35),
+    new THREE.Vector3(6.75, heightAt(6.75, -7.45) + 0.9, -7.3),
+  ]);
+  const hang = new THREE.Mesh(new THREE.TubeGeometry(hanging, 10, 0.022, 4, false), M.fence);
+  hang.castShadow = true;
+  world.add(hang);
+
+  // weeds at posts
+  const weedRng = mulberry32(777);
+  for (const p of postData) {
+    if (weedRng() > 0.6) {
+      const tuft = createGrassTuft(weedRng, 0.55 + weedRng() * 0.25, M.grassDry);
+      tuft.position.set(p.x + (weedRng() - 0.5) * 0.5, heightAt(p.x, p.z), p.z + 0.35);
+      world.add(tuft);
+    }
+  }
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Leaning rusted sign                                                */
+/* ------------------------------------------------------------------ */
+
+(function sign() {
+  const g = new THREE.Group();
+  const panelMat = makeMat(0x6a6250, { roughness: 0.8, metalness: 0.3 });
+  box(g, 1.35, 0.95, 0.06, panelMat, 0, 1.1, 0, 0.02, 0, 0.03);
+  box(g, 0.55, 0.28, 0.012, M.rust, -0.25, 1.2, 0.036, 0, 0, 0.2);
+  box(g, 0.28, 0.4, 0.012, M.rustDark, 0.35, 0.87, 0.036, 0, 0, -0.12);
+  box(g, 0.5, 0.05, 0.012, M.rust, 0.15, 1.4, 0.036, 0, 0, 0);
+  box(g, 0.1, 1.45, 0.1, M.rustDark, -0.42, 0.72, -0.04, 0.12, 0, 0.16);
+  box(g, 0.1, 1.45, 0.1, M.rustDark, 0.42, 0.72, -0.04, 0.06, 0, -0.1);
+  g.position.set(-9.25, heightAt(-9.25, -2.75), -2.75);
+  g.rotation.set(0.03, 0.52, 0.12);
+  world.add(g);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Dry vegetation                                                     */
+/* ------------------------------------------------------------------ */
+
+(function vegetation() {
+  const rng = mulberry32(3602);
+  const positions = [];
+  // perimeter
+  for (let i = 0; i < 16; i++) {
+    const a = rng() * TAU;
+    const t = 0.76 + rng() * 0.17;
+    const rf = outline(a);
+    const x = Math.cos(a) * RX * rf * t;
+    const z = Math.sin(a) * RZ * rf * t;
+    if (z > 4 && x > -6.5 && x < 1.5) continue;
+    positions.push([x, z, 0.65 + rng() * 0.55]);
+  }
+  // near the mound edges and fence
+  for (let i = 0; i < 7; i++) {
+    const p = randomMoundPoint(rng, 5.3, 0.15);
+    positions.push([p.x, p.z, 0.55 + rng() * 0.5]);
+  }
+  positions.push([2.4, -7.6, 1.0], [6.94, -6.7, 0.9], [-8.6, -4.8, 0.8]);
+
+  positions.forEach(([x, z, s], i) => {
+    const mat = i % 3 === 0 ? M.grassOlive : M.grassDry;
+    const tuft = createGrassTuft(rng, s, mat);
+    tuft.position.set(x, heightAt(x, z) - 0.01, z);
+    tuft.rotation.y = rng() * TAU;
+    world.add(tuft);
+    if (i < 9) {
+      swayingGrass.push({ mesh: tuft, phase: rng() * TAU, amp: 0.022 + rng() * 0.018 });
+    }
+  });
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Loose animated paper                                               */
+/* ------------------------------------------------------------------ */
+
+const paperBase = new THREE.Vector3(-2.6, 0, 5.7);
+const paper = (function createPaper() {
+  const rng = mulberry32(818);
+  const geo = new THREE.PlaneGeometry(0.34, 0.46, 3, 3);
+  jitterGeometry(geo, (x, y, z) => ({
+    x: x * (0.85 + rng() * 0.2), y: y * (0.85 + rng() * 0.2),
+    z: z + (rng() - 0.5) * 0.07
+  }));
+  const mesh = new THREE.Mesh(geo, M.paper);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.rotation.set(-Math.PI / 2 + 0.12, 0, 0.4);
+  paperBase.y = heightAt(paperBase.x, paperBase.z) + 0.04;
+  mesh.position.copy(paperBase);
+  world.add(mesh);
+  return mesh;
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Bulldozer                                                          */
+/* ------------------------------------------------------------------ */
+
+function stadiumPoints(L, H, parts = 6) {
+  const r = H / 2;
+  const xs = L / 2 - r;
+  const pts = [];
+  pts.push([-xs, -r]);
+  pts.push([xs, -r]);
+  for (let i = 0; i <= parts; i++) {
+    const a = -Math.PI / 2 + (i / parts) * Math.PI;
+    pts.push([xs + Math.cos(a) * r, Math.sin(a) * r]);
+  }
+  pts.push([-xs, r]);
+  for (let i = 0; i <= parts; i++) {
+    const a = Math.PI / 2 + (i / parts) * Math.PI;
+    pts.push([-xs + Math.cos(a) * r, Math.sin(a) * r]);
+  }
+  return pts;
+}
+
+function makeTrackGeometry() {
+  const L = 3.3, H = 1.08, thick = 0.17;
+  const outerPts = stadiumPoints(L, H, 7);
+  const innerPts = stadiumPoints(L - thick * 2, H - thick * 2, 7).reverse();
+  const shape = new THREE.Shape(outerPts.map(p => new THREE.Vector2(p[0], p[1])));
+  const hole = new THREE.Path(innerPts.map(p => new THREE.Vector2(p[0], p[1])));
+  shape.holes.push(hole);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.5, bevelEnabled: false, steps: 1, curveSegments: 1 });
+  geo.rotateY(Math.PI / 2);
+  geo.translate(-0.25, 0, 0);
+
+  const parts = [geo];
+  const addPlate = (z, y, rot = 0) => {
+    const b = new THREE.BoxGeometry(0.55, 0.12, 0.32);
+    b.rotateX(rot);
+    b.translate(0, y, z);
+    parts.push(b);
+  };
+  // top and bottom runs
+  for (let i = -3; i <= 3; i++) {
+    addPlate(i * 0.37, H / 2 + 0.035);
+    addPlate(i * 0.37, -H / 2 - 0.035);
+  }
+  // rounded ends
+  for (const end of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + (i / 4) * Math.PI;
+      const z = end * (L / 2 - H / 2) + Math.cos(a) * (H / 2 + 0.02);
+      const y = Math.sin(a) * (H / 2 + 0.02);
+      addPlate(z, y, -a);
+    }
+  }
+  return mergeGeometries(parts.map(g => g.index ? g.toNonIndexed() : g), false);
+}
+const trackGeom = makeTrackGeometry();
+
+function createBulldozer() {
+  const g = new THREE.Group();
+  const trackMat = new THREE.MeshStandardMaterial({ color: 0x30322e, flatShading: true, roughness: 0.96, metalness: 0.1 });
+  const frameMat = makeMat(0x91803c, { roughness: 0.9, metalness: 0.18 });
+
+  // undercarriage
+  box(g, 1.9, 0.34, 2.7, frameMat, 0, 1.02, -0.05);
+  for (const sx of [-1, 1]) {
+    const track = new THREE.Mesh(trackGeom, trackMat);
+    track.position.set(sx * 0.93, 0.66, 0);
+    track.castShadow = true; track.receiveShadow = true;
+    g.add(track);
+
+    // wheels
+    const wheelZ = [-1.0, -0.35, 0.35, 1.0];
+    wheelZ.forEach((wz, wi) => {
+      cyl(g, 0.29, 0.29, 0.37, 10, M.steelDark, sx * 0.93, 0.64, wz, 0, 0, Math.PI / 2);
+      cyl(g, 0.12, 0.12, 0.39, 8, M.steelLight, sx * 0.93, 0.64, wz, 0, 0, Math.PI / 2);
+    });
+    // idler / drive sprocket
+    cyl(g, 0.25, 0.25, 0.38, 9, M.steelDark, sx * 0.93, 0.95, -1.15, 0, 0, Math.PI / 2);
+    cyl(g, 0.09, 0.09, 0.4, 7, M.steelLight, sx * 0.93, 0.95, -1.15, 0, 0, Math.PI / 2);
+    // track fender
+    box(g, 0.62, 0.08, 2.55, M.yellowDark, sx * 0.93, 1.28, 0);
+  }
+
+  // chassis / engine hood
+  box(g, 1.72, 0.55, 2.35, M.yellow, 0, 1.3, 0.15);
+  const hood = box(g, 1.62, 0.7, 1.45, M.yellow, 0, 1.75, 0.7);
+  // sloped nose
+  const nose = box(g, 1.6, 0.55, 0.5, M.yellow, 0, 1.53, 1.52, 0.38, 0, 0);
+  // front grille
+  box(g, 1.15, 0.34, 0.06, M.steelDark, 0, 1.55, 1.73, 0.32, 0, 0);
+  for (let i = 0; i < 5; i++) box(g, 0.11, 0.28, 0.025, M.steelLight, -0.44 + i * 0.22, 1.55, 1.77, 0.32, 0, 0);
+  // side vents
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      box(g, 0.03, 0.08, 0.34, M.steelDark, sx * 0.825, 1.78, 0.35 + i * 0.17, 0, 0, 0);
+    }
+  }
+  // exhaust
+  cyl(g, 0.075, 0.09, 0.72, 7, M.steelDark, 0.55, 2.35, 1.02);
+  cyl(g, 0.095, 0.095, 0.08, 7, M.rustDark, 0.55, 2.72, 1.02);
+  const exhTip = box(g, 0.14, 0.09, 0.14, M.rustDark, 0.55, 2.77, 1.02, 0, 0.4, 0.15);
+
+  // rust patches on hood / frame
+  box(g, 0.45, 0.3, 0.012, M.rust, -0.52, 1.7, 1.43, 0.38, 0, 0.1);
+  box(g, 0.22, 0.5, 0.012, M.rustDark, 0.82, 1.55, 0.3, 0, Math.PI / 2, 0.2);
+  box(g, 0.36, 0.16, 0.012, M.rust, 0.4, 1.42, 1.72, 0.32, 0, -0.08);
+
+  // cabin
+  const cabY = 1.45, cabH = 1.05;
+  const roofMat = M.yellowDark;
+  box(g, 1.48, 0.12, 1.28, M.yellow, 0, cabY + cabH, -0.72);
+  box(g, 1.6, 0.09, 1.4, roofMat, 0, cabY + cabH + 0.11, -0.72);
+  const postPos = [[-0.68, -0.3], [0.68, -0.3], [-0.68, -1.18], [0.68, -1.18]];
+  for (const [px, pz] of postPos) {
+    box(g, 0.1, cabH, 0.1, M.yellowDark, px, cabY + cabH / 2, pz);
+  }
+  // windows
+  const winY = cabY + cabH * 0.53;
+  const frontWin = box(g, 1.3, 0.76, 0.025, M.glass, 0, winY, -0.27);
+  const backWin = box(g, 1.28, 0.72, 0.025, M.glass, 0, winY, -1.22);
+  frontWin.castShadow = false;
+  backWin.castShadow = false;
+  for (const sx of [-1, 1]) {
+    const sideWin = box(g, 0.025, 0.72, 0.82, M.glass, sx * 0.71, winY, -0.72);
+    sideWin.castShadow = false;
+    // thick frame edge
+    box(g, 0.05, 0.06, 0.88, M.yellowDark, sx * 0.715, winY + 0.38, -0.72);
+  }
+  // lower cabin panel
+  box(g, 1.38, 0.35, 0.08, M.yellow, 0, cabY + 0.1, -1.2);
+  box(g, 1.38, 0.35, 0.08, M.yellow, 0, cabY + 0.08, -0.25);
+  // roof beacon stains
+  box(g, 0.24, 0.03, 0.16, M.rustDark, 0.42, cabY + cabH + 0.17, -0.55);
+
+  // interior
+  box(g, 0.52, 0.1, 0.5, M.upholsteryLight, 0, cabY + 0.12, -0.82);
+  box(g, 0.5, 0.5, 0.1, M.upholsteryDark, 0, cabY + 0.38, -1.02, -0.1, 0, 0);
+  box(g, 0.6, 0.08, 0.1, M.creamDark, 0, cabY + 0.16, -0.58);
+  cyl(g, 0.035, 0.035, 0.46, 5, M.steelDark, 0.05, cabY + 0.37, -0.48, -0.55, 0, 0);
+  const wheelSteer = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.028, 4, 10), M.steelLight);
+  wheelSteer.position.set(0.06, cabY + 0.55, -0.38);
+  wheelSteer.rotation.x = -0.95;
+  wheelSteer.castShadow = true;
+  g.add(wheelSteer);
+  for (const lx of [0.36, 0.42]) {
+    cyl(g, 0.018, 0.018, 0.44, 4, M.steelLight, lx, cabY + 0.3, -0.58, 0.2, 0, 0.25);
+  }
+
+  // front blade
+  const bladeGeo = new THREE.BoxGeometry(3.5, 1.18, 0.14, 9, 3, 1);
+  jitterGeometry(bladeGeo, (x, y, z) => {
+    const nx = x / 1.75;
+    const zz = z + 0.2 * (1 - nx * nx) + 0.04 * Math.sin(y * 3.1);
+    const yy = y - 0.035 * (1 - nx * nx);
+    return { x, y: yy, z: zz };
+  });
+  const bladeMat = makeMat(0xb99b45, { roughness: 0.86, metalness: 0.25 });
+  const blade = new THREE.Mesh(bladeGeo, bladeMat);
+  blade.position.set(0, 0.73, 2.32);
+  blade.rotation.x = -0.12;
+  blade.castShadow = true; blade.receiveShadow = true;
+  g.add(blade);
+  // cutting edge
+  box(g, 3.55, 0.14, 0.24, M.steelDark, 0, 0.2, 2.36, -0.12, 0, 0);
+  // top rolled lip
+  box(g, 3.55, 0.12, 0.18, M.yellowDark, 0, 1.27, 2.23, -0.12, 0, 0);
+  // angled side edges
+  for (const sx of [-1, 1]) {
+    box(g, 0.18, 1.1, 0.5, M.yellowDark, sx * 1.68, 0.7, 2.15, -0.1, sx * 0.42, 0);
+  }
+  // blade rust
+  box(g, 0.5, 0.3, 0.012, M.rustDark, -0.7, 0.72, 2.47, -0.12, 0, 0.1);
+  box(g, 0.3, 0.55, 0.012, M.rust, 0.85, 0.7, 2.46, -0.12, 0, 0.06);
+
+  // blade arms and hydraulics
+  for (const sx of [-1, 1]) {
+    const a = new THREE.Vector3(sx * 0.78, 0.95, 1.05);
+    const b = new THREE.Vector3(sx * 1.12, 0.63, 2.25);
+    cylinderBetween(g, a, b, 0.12, M.yellowDark, 6);
+    // hydraulic cylinder
+    const ha = new THREE.Vector3(sx * 0.8, 1.42, 1.31);
+    const hb = new THREE.Vector3(sx * 1.1, 0.9, 2.18);
+    cylinderBetween(g, ha, hb, 0.075, M.steelDark, 6);
+    const rodA = new THREE.Vector3(sx * 0.95, 1.17, 1.75);
+    const rodB = new THREE.Vector3(sx * 1.08, 0.94, 2.1);
+    cylinderBetween(g, rodA, rodB, 0.035, M.steelLight, 5);
+  }
+
+  // faint headlight
+  for (const sx of [-0.55, 0.55]) {
+    cyl(g, 0.075, 0.075, 0.05, 8, M.creamDark, sx, 1.72, 1.48, Math.PI / 2 + 0.38, 0, 0);
+  }
+  return g;
+}
+
+(function placeBulldozer() {
+  const b = createBulldozer();
+  const x = 3.25, z = 4.55;
+  b.position.set(x, heightAt(x, z) + 0.01, z);
+  b.rotation.y = -1.22;
+  b.scale.setScalar(0.98);
+  world.add(b);
+})();
+
+/* ------------------------------------------------------------------ */
+/*  Animation                                                          */
+/* ------------------------------------------------------------------ */
+
+const clock = new THREE.Clock();
+let elapsed = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  elapsed += dt;
+
+  // grass sway
+  for (const s of swayingGrass) {
+    s.mesh.rotation.z = Math.sin(elapsed * 0.85 + s.phase) * s.amp;
+    s.mesh.rotation.x = Math.cos(elapsed * 0.62 + s.phase * 1.3) * s.amp * 0.6;
+  }
+
+  // paper lifting and settling
+  const cycle = elapsed % 12;
+  let lift = 0;
+  if (cycle < 4.6) {
+    const t = cycle / 4.6;
+    lift = Math.sin(t * Math.PI) ** 2;
+  }
+  paper.position.set(
+    paperBase.x + lift * 0.22 + Math.sin(elapsed * 1.4) * 0.03 * lift,
+    paperBase.y + lift * 0.34,
+    paperBase.z + lift * 0.1
+  );
+  paper.rotation.x = -Math.PI / 2 + 0.12 + lift * 0.55;
+  paper.rotation.z = 0.4 + Math.sin(elapsed * 1.7) * 0.16 * lift + lift * 0.6;
+  paper.rotation.y = Math.sin(elapsed * 1.1) * 0.2 * lift;
+
+  // puddle ripples
+  ripples.forEach((r, i) => {
+    const p = ((elapsed + r.offset) % 5.6) / 5.6;
+    r.mesh.scale.setScalar(0.35 + p * 2.0);
+    rippleMaterials[i].opacity = 0.24 * (1 - p) * (1 - p);
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

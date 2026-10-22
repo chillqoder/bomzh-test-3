@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Landfill Diorama</title>
+<style>
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#cfc7bd; }
+  canvas { display:block; }
+</style>
+</head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* ============================== SEEDED RANDOM ============================== */
+let _seed = 987651;
+function rand(){ _seed = (_seed * 1664525 + 1013904223) >>> 0; return _seed / 4294967296; }
+const rr = (a,b) => a + rand()*(b-a);
+const ri = (a,b) => Math.floor(a + rand()*(b-a+1));
+const pick = arr => arr[ri(0, arr.length-1)];
+function hash2(x, y){ const s = Math.sin(x*127.1 + y*311.7)*43758.5453; return s - Math.floor(s); }
+const V3 = (x,y,z)=>new THREE.Vector3(x,y,z);
+
+/* ============================== MATERIALS ============================== */
+const matCache = new Map();
+function M(color, opts={}){
+  const key = color+'|'+(opts.rough??0.94)+'|'+(opts.metal??0)+'|'+(opts.flat??1)+'|'+(opts.side??0)+'|'+(opts.op??1);
+  if (!matCache.has(key)){
+    matCache.set(key, new THREE.MeshStandardMaterial({
+      color, flatShading: !!(opts.flat??1),
+      roughness: opts.rough??0.94, metalness: opts.metal??0,
+      side: (opts.side??0) ? THREE.DoubleSide : THREE.FrontSide,
+      transparent: (opts.op??1) < 1, opacity: opts.op??1,
+      polygonOffset: !!opts.poff, polygonOffsetFactor: -1, polygonOffsetUnits: -1
+    }));
+  }
+  return matCache.get(key);
+}
+const PAL = {
+  soilTop1: 0x91755a, soilTop2: 0x7f6a50, moundTint: 0x6e5c48, mud: 0x686450, rut: 0x4c4739,
+  soilDark: 0x453328, soilSand: 0x9b7d5e,
+  bagCharcoal: 0x2f2e2e, bagOlive: 0x4b4f35, bagBlue: 0x3d5462,
+  cardboard: 0x8f6c44, cardboardDark: 0x6b4e31,
+  glassGreen: 0x4c7248, glassBrown: 0x6e4a24, glassBlue: 0x64838c,
+  canMetal: 0x9ea3a6, canBlue: 0x5d7585, canOrange: 0xb07a3c,
+  tire: 0x2e2b28, tireOld: 0x2b2926,
+  rust: 0x7c4526, rustDark: 0x5f3820, barrel: 0x8a4a28,
+  cream: 0xd9d0b6, creamDirty: 0xc4bb9e,
+  yellow: 0xc4a23b, yellowDark: 0x9e8630, steel: 0x33363a, steelDark: 0x26282b,
+  window: 0x3a444e, plasticBlue: 0x5f7a8c, plasticGreen: 0x6d7d4b, plasticOrange: 0xb87a3a,
+  sofaFabric: 0x757a55, sofaFabric2: 0x86784f, wood: 0x72543a,
+  waterMud: 0x5d6350, pondBorder: 0x4c3f2c, stone: 0x8b8074, stone2: 0x6f6960,
+  dryGrass: 0x9c8f55, dryGrass2: 0x837b45, leafOlive: 0x6f7448,
+  paper: 0xd3ccba, boot: 0x4e4032, metalWire: 0x5b5e60,
+  dumpsterGreen: 0x5c6b5a, paintedMetal: 0x60726f
+};
+
+/* ============================== SCENE / RENDERER ============================== */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcfc7bd);
+scene.fog = new THREE.Fog(0xcfc7bd, 52, 95);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth/innerHeight, 0.1, 200);
+camera.position.set(14.5, 11.5, 17.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0.4, 1.0, 0.2);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 7;
+controls.maxDistance = 46;
+controls.maxPolarAngle = 1.42;
+controls.update();
+
+/* ============================== LIGHTS ============================== */
+scene.add(new THREE.HemisphereLight(0xcfd8e4, 0x8a7a5f, 0.65));
+const sun = new THREE.DirectionalLight(0xffe0bd, 2.5);
+sun.position.set(11, 15, 9);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
+sun.shadow.camera.top = 15; sun.shadow.camera.bottom = -14;
+sun.shadow.camera.near = 2; sun.shadow.camera.far = 50;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.03;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xbcc4d4, 0.35);
+fill.position.set(-10, 8, -7);
+scene.add(fill);
+
+/* Presentation surface */
+const groundPlate = new THREE.Mesh(new THREE.CircleGeometry(36, 48), M(0xbdb4a7, {flat: 0, rough: 1.0}));
+groundPlate.rotation.x = -Math.PI/2;
+groundPlate.position.y = -1.11;
+groundPlate.receiveShadow = true;
+scene.add(groundPlate);
+
+/* ============================== TERRAIN ============================== */
+const WORLD = { W: 22, D: 18, bottom: -1.1, seg: 64 };
+
+/* access path: quadratic bezier samples */
+const PATH = [];
+(function(){
+  const p0 = {x:2.7, z:9.2}, p1 = {x:3.1, z:3.4}, p2 = {x:-1.4, z:-0.8};
+  for (let i=0; i<=64; i++){
+    const t = i/64, u = 1-t;
+    PATH.push({ x: u*u*p0.x + 2*u*t*p1.x + t*t*p2.x,
+                z: u*u*p0.z + 2*u*t*p1.z + t*t*p2.z });
+  }
+})();
+function pathInfo(x, z){
+  let best = 1e9, bi = 0;
+  for (let i=0; i<PATH.length; i++){
+    const dx = x-PATH[i].x, dz = z-PATH[i].z, d2 = dx*dx+dz*dz;
+    if (d2 < best){ best = d2; bi = i; }
+  }
+  const dist = Math.sqrt(best);
+  const t = bi/64;
+  const j = Math.min(63, Math.max(0, bi));
+  const a = PATH[Math.max(0,j-2)], b = PATH[Math.min(64,j+2)];
+  let tx = b.x-a.x, tz = b.z-a.z;
+  const l = Math.hypot(tx, tz) || 1; tx/=l; tz/=l;
+  return { dist, t, px: PATH[j].x, pz: PATH[j].z, tx, tz, nx: -tz, nz: tx };
+}
+
+const MOUND = { x:-2.2, z:-1.2, h:2.7, r:4.8 };
+const MOUND2 = { x:7.4, z:-5.2, h:1.65, r:2.5 };
+const MOUND3 = { x:-7.7, z:-5.4, h:1.35, r:2.3 };
+const POND = { x:-5.0, z:4.8, r:1.35 };
+function gauss(dx, dz, r){ return Math.max(0, 1 - (dx*dx+dz*dz)/(r*r)); }
+
+function terrainH(x, z){
+  let h = 0.18
+    + 0.20*Math.sin(x*0.42+1.7)*Math.cos(z*0.36+0.6)
+    + 0.15*Math.sin(x*0.9+3.1)*Math.sin(z*0.75+2.0)
+    + 0.07*Math.sin(x*2.1+0.4)*Math.cos(z*1.8+0.5);
+  // main mound: overlapping lobes for an uneven, multi-peak silhouette
+  h += MOUND.h * gauss(x-MOUND.x, z-MOUND.z, MOUND.r);
+  h += 1.35 * gauss(x+3.5, z-0.4, 2.6);
+  h += 1.5 * gauss(x+0.7, z+2.7, 2.7);
+  h += 0.9 * gauss(x+1.8, z+0.9, 2.2);
+  h += 0.5 * gauss(x-1.2, z-3.2, 2.0);
+  h -= 0.4 * gauss(x+1.3, z-0.7, 1.5); // saddle notch between lobes
+  const mm = Math.max(gauss(x-MOUND.x, z-MOUND.z, MOUND.r), gauss(x+3.5, z-0.4, 2.6),
+    gauss(x+0.7, z+2.7, 2.7), gauss(x+1.8, z+0.9, 2.2));
+  h += (hash2(x*0.6, z*0.6)-0.35) * 0.4 * mm; // lumpy trash-mass noise
+  h += MOUND2.h * gauss(x-MOUND2.x, z-MOUND2.z, MOUND2.r);
+  h += MOUND3.h * gauss(x-MOUND3.x, z-MOUND3.z, MOUND3.r);
+  const path = pathInfo(x, z);
+  if (path.dist < 1.7){
+    const k = Math.pow(Math.max(0, 1 - path.dist/1.7), 0.8);
+    h -= 0.26 * k;
+    for (const side of [-0.52, 0.52]){
+      const rx = path.px + path.nx*side, rz = path.pz + path.nz*side;
+      const d = Math.hypot(x-rx, z-rz);
+      if (d < 0.26 && path.t > 0.04 && path.t < 0.97) h -= 0.11 * (1 - d/0.26);
+    }
+  }
+  const pd = Math.hypot(x-POND.x, z-POND.z);
+  if (pd < POND.r+0.45) h -= 0.16 * Math.max(0, 1 - pd/(POND.r+0.45));
+  return h;
+}
+function moundMask(x, z){ return Math.max(gauss(x-MOUND.x, z-MOUND.z, MOUND.r),
+  gauss(x-MOUND2.x, z-MOUND2.z, MOUND2.r), gauss(x-MOUND3.x, z-MOUND3.z, MOUND3.r)); }
+
+function topColor(x, z){
+  const n = hash2(x*0.7, z*0.7), m = hash2(x*1.9+13, z*1.9+7);
+  const c = new THREE.Color(PAL.soilTop1).lerp(new THREE.Color(PAL.soilTop2), clamp01(n*0.5+0.5));
+  const mm = moundMask(x, z);
+  if (mm > 0) c.lerp(new THREE.Color(PAL.moundTint), mm*0.6);
+  const p = pathInfo(x, z);
+  if (p.dist < 1.6) c.lerp(new THREE.Color(PAL.mud), Math.pow(1 - p.dist/1.6, 0.7)*0.8);
+  for (const side of [-0.52, 0.52]){
+    const d = Math.hypot(x-(p.px+p.nx*side), z-(p.pz+p.nz*side));
+    if (d < 0.22 && p.t > 0.04 && p.t < 0.97) c.lerp(new THREE.Color(PAL.rut), (1-d/0.22)*0.85);
+  }
+  const pd = Math.hypot(x-POND.x, z-POND.z);
+  if (pd < POND.r+0.5) c.lerp(new THREE.Color(PAL.pondBorder), Math.pow(1-pd/(POND.r+0.5), 0.8)*0.85);
+  c.offsetHSL(0, 0, (m-0.5)*0.05);
+  return c;
+}
+function clamp01(v){ return Math.min(1, Math.max(0, v)); }
+
+const terrainGroup = new THREE.Group();
+scene.add(terrainGroup);
+
+/* snap helper: exact height of the triangulated surface under (x,z) */
+let terrainMeshRef = null;
+const _ray = new THREE.Raycaster();
+const _down = new THREE.Vector3(0,-1,0);
+const _rayOrigin = new THREE.Vector3();
+function groundY(x, z){
+  if (terrainMeshRef){
+    _rayOrigin.set(x, 20, z);
+    _ray.set(_rayOrigin, _down);
+    _ray.far = 40;
+    const hits = _ray.intersectObject(terrainMeshRef, false);
+    if (hits.length) return hits[0].point.y;
+  }
+  return terrainH(x, z);
+}
+
+/* ---- top surface: irregular triangulated grid with jitter ---- */
+(function buildTop(){
+  const S = WORLD.seg, W = WORLD.W, D = WORLD.D;
+  const pos = [], col = [];
+  const grid = [];
+  for (let i=0; i<=S; i++){
+    grid[i] = [];
+    for (let j=0; j<=S; j++){
+      let x = -W/2 + j*W/S, z = -D/2 + i*D/S;
+      const edge = (i===0 || i===S || j===0 || j===S);
+      if (!edge){ x += (rand()-0.5)*(W/S)*0.75; z += (rand()-0.5)*(D/S)*0.75; }
+      const inside = i>0 && i<S && j>0 && j<S;
+      grid[i][j] = { x, z, y: terrainH(x, z), inside };
+    }
+  }
+  const push = (v) => { pos.push(v.x, v.y, v.z); const c = topColor(v.x, v.z); col.push(c.r, c.g, c.b); };
+  for (let i=0; i<S; i++) for (let j=0; j<S; j++){
+    const a = grid[i][j], b = grid[i][j+1], c2 = grid[i+1][j+1], d = grid[i+1][j];
+    const flip = (a.inside && rand() > 0.5);
+    if (flip){ push(a); push(d); push(c2); push(a); push(c2); push(b); }
+    else { push(a); push(d); push(b); push(b); push(d); push(c2); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors:true, flatShading:true, roughness:0.97 }));
+  mesh.castShadow = mesh.receiveShadow = true;
+  terrainGroup.add(mesh);
+  terrainMeshRef = mesh;
+})();
+
+/* ---- side skirt with exposed soil layers ---- */
+(function buildSkirt(){
+  const W = WORLD.W, D = WORLD.D, B = WORLD.bottom;
+  const ring = [];
+  const S = WORLD.seg;
+  for (let j=0; j<=S; j++) ring.push([-W/2 + j*W/S, -D/2]);          // rear (z=-D/2)
+  for (let i=0; i<=S; i++) ring.push([W/2, -D/2 + i*D/S]);          // east
+  for (let j=S; j>=0; j--) ring.push([-W/2 + j*W/S, D/2]);          // front
+  for (let i=S; i>=0; i--) ring.push([-W/2, -D/2 + i*D/S]);         // west
+  const pos = [], col = [];
+  const cDark = new THREE.Color(PAL.soilDark);
+  const cSand = new THREE.Color(PAL.soilSand);
+  for (let i=0; i<ring.length; i++){
+    const [x0, z0] = ring[i], [x1, z1] = ring[(i+1)%ring.length];
+    const cA = topColor(x0, z0), cB = topColor(x1, z1);
+    const yA = terrainH(x0, z0), yB = terrainH(x1, z1);
+    const botA = [x0, B, z0], botB = [x1, B, z1];
+    // two triangles of the strip
+    const tri = (p0, p1, p2, c0, c1, c2) => {
+      pos.push(p0[0],p0[1],p0[2], p1[0],p1[1],p1[2], p2[0],p2[1],p2[2]);
+      col.push(c0.r,c0.g,c0.b, c1.r,c1.g,c1.b, c2.r,c2.g,c2.b);
+    };
+    const mixK = (c, k) => { const o = c.clone().lerp(cDark, Math.pow(k, 0.7)); if (k<0.35) o.lerp(cSand, 0.12*(1-k/0.35)); return o; };
+    tri([x0,yA,z0], [x1,yB,z1], botB, cA, cB, mixK(cB,1));
+    tri([x0,yA,z0], botB, botA, cA, mixK(cB,1), mixK(cA,1));
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors:true, flatShading:true, roughness:0.98 }));
+  mesh.castShadow = mesh.receiveShadow = true;
+  terrainGroup.add(mesh);
+})();
+
+/* ---- underside ---- */
+(function buildBottom(){
+  const W = WORLD.W, D = WORLD.D, B = WORLD.bottom;
+  const cs = [[-W/2,-D/2],[W/2,-D/2],[W/2,D/2],[-W/2,D/2]];
+  const pos = [], col = [];
+  const cB = new THREE.Color(PAL.soilDark);
+  for (let i=1; i<3; i++){
+    pos.push(cs[0][0],B,cs[0][1], cs[i][0],B,cs[i][1], cs[i+1][0],B,cs[i+1][1]);
+    col.push(cB.r,cB.g,cB.b, cB.r,cB.g,cB.b, cB.r,cB.g,cB.b);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.computeVertexNormals();
+  terrainGroup.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors:true, flatShading:true, roughness:1 })));
+})();
+
+/* ---- helpers for placing objects on terrain ---- */
+function placeOnGround(obj, x, z, opts={}){
+  const embed = opts.embed||0;
+  obj.position.set(x, groundY(x, z) - embed, z);
+  if (opts.tilt !== 0){
+    obj.rotation.y = opts.yaw !== undefined ? opts.yaw : rand()*Math.PI*2;
+    obj.rotation.x += (rand()-0.5)*(opts.tilt??0.09);
+    obj.rotation.z += (rand()-0.5)*(opts.tilt??0.09);
+  }
+}
+
+/* ---- shared geometry utilities ---- */
+function jitterGeo(geo, amt, freq=0.35){
+  const p = geo.attributes.position;
+  const map = new Map();
+  for (let i=0; i<p.count; i++){
+    const k = p.getX(i).toFixed(3)+','+p.getY(i).toFixed(3)+','+p.getZ(i).toFixed(3);
+    if (!map.has(k)) map.set(k, [ (rand()-0.5)*amt*2, (rand()-0.5)*amt*2, (rand()-0.5)*amt*2 ]);
+    const o = map.get(k);
+    p.setXYZ(i, p.getX(i)+o[0], p.getY(i)+o[1], p.getZ(i)+o[2]);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+function mesh(geo, mat, cast=true){
+  const m = new THREE.Mesh(geo, mat);
+  m.castShadow = cast; m.receiveShadow = true;
+  return m;
+}
+
+/* ============================== TRASH BUILDERS ============================== */
+const trashLayer = new THREE.Group(); scene.add(trashLayer);
+const flowers = new THREE.Group(); scene.add(flowers); // vegetation
+
+/* ---------- garbage bags ---------- */
+const bagGeos = [0,1,2].map(vi => {
+  const body = new THREE.IcosahedronGeometry(0.5, 1);
+  body.scale(rr(0.95,1.25), rr(0.7,0.95), rr(0.8,1.1));
+  const neck = new THREE.CylinderGeometry(0.1, 0.16, 0.28, 7);
+  neck.translate(0, 0.55, 0);
+  const twist = new THREE.BoxGeometry(0.16, 0.1, 0.2);
+  twist.translate(rr(-0.03,0.03), 0.72, 0);
+  const g = mergeGeometries([body, neck.toNonIndexed(), twist.toNonIndexed()]);
+  jitterGeo(g, 0.09);
+  return g;
+});
+function addBag(x, z, opts={}){
+  const s = opts.s || rr(0.55, 1.25);
+  const bags = [PAL.bagCharcoal, PAL.bagCharcoal, PAL.bagOlive, PAL.bagBlue];
+  const bag = mesh(pick(bagGeos), M(opts.color || pick(bags), {rough:0.85}));
+  bag.scale.setScalar(s);
+  placeOnGround(bag, x, z, { embed: opts.embed??0.12*s, tilt: opts.tilt??0.35, yaw: opts.yaw });
+  (opts.parent||trashLayer).add(bag);
+  return bag;
+}
+
+/* ---------- cardboard boxes ---------- */
+function addCardboardBox(x, z, opts={}){
+  const g = new THREE.Group();
+  const w = opts.w || rr(0.55, 0.95), h = opts.h || rr(0.4, 0.7), d = opts.d || w*rr(0.75, 1.0);
+  const T = 0.035;
+  const pm = M(opts.color || PAL.cardboard, {rough:0.98});
+  const pm2 = M(PAL.cardboardDark, {rough:0.98});
+  g.add(mesh(new THREE.BoxGeometry(w-T, d, T).translate(0, h/2, -d/2+T/2), pm)); // back
+  g.add(mesh(new THREE.BoxGeometry(T, d, d-T).translate(-w/2+T/2, h/2, 0), pm)); // left
+  g.add(mesh(new THREE.BoxGeometry(T, d, d-T).translate(w/2-T/2, h/2, 0), pm));  // right
+  g.add(mesh(new THREE.BoxGeometry(w-T, T, d-T).translate(0, T/2, 0), pm2));     // floor
+  if (opts.open){
+    const fg = new THREE.BoxGeometry(w-T, d, T);
+    const sideF = new THREE.BoxGeometry(T, d, d-T);
+    const front = mesh(fg.clone().translate(0, h/2, d/2-T/2), pm);
+    // two bent open flaps on top
+    const flap = new THREE.BoxGeometry(w*0.5-T, T, d-T*2);
+    const f1 = mesh(flap, pm2); f1.position.set(-w/4, h, -d/2+T); f1.rotation.x = rr(0.7,1.2);
+    const f2 = mesh(flap.clone(), pm2); f2.position.set(w/4, h, -d/2+T); f2.rotation.x = rr(0.5,0.95);
+    g.add(front, f1, f2);
+  } else {
+    g.add(mesh(new THREE.BoxGeometry(w, T, d).translate(0, h-T/2, 0), pm2));
+  }
+  if (rand() < 0.5){ g.children[0].scale.x = 0.985; g.children[2].rotation.x = rr(-0.05,0.05); } // crushed corner hint
+  jitterGroup(g, 0.012);
+  placeOnGround(g, x, z, { embed: opts.embed??0.02, tilt: opts.tilt??0.16, yaw: opts.yaw });
+  (opts.parent||trashLayer).add(g);
+  return g;
+}
+function jitterGroup(g, amt){
+  // subtle non-uniform scale for a hand-made feel
+  g.scale.x *= rr(1-amt, 1+amt); g.scale.z *= rr(1-amt, 1+amt);
+}
+
+/* ---------- metal cans ---------- */
+function canGeometry(crushed){
+  const body = new THREE.CylinderGeometry(0.105, 0.105, 0.28, 10, 3);
+  if (crushed) crushGeo(body);
+  const rimT = new THREE.TorusGeometry(0.103, 0.014, 4, 12); rimT.rotateX(Math.PI/2); rimT.translate(0, 0.14, 0);
+  const rimB = new THREE.TorusGeometry(0.103, 0.014, 4, 12); rimB.rotateX(Math.PI/2); rimB.translate(0, -0.14, 0);
+  const g = mergeGeometries([body, rimT, rimB]);
+  return g;
+}
+function crushGeo(geo){
+  const p = geo.attributes.position;
+  for (let i=0; i<p.count; i++){
+    const x=p.getX(i), y=p.getY(i), z=p.getZ(i);
+    const f = 0.6 + hash2(Math.atan2(z,x)*3, y*2)*0.55;
+    p.setXYZ(i, x*f, y + hash2(x*4,z*4)*0.03 - 0.015, z*f);
+  }
+  geo.computeVertexNormals();
+}
+/* ---------- glass bottles ---------- */
+function bottleGeometry(){
+  const pts = [
+    [0.001,0],[0.095,0.001],[0.112,0.03],[0.112,0.36],[0.095,0.42],[0.05,0.5],
+    [0.032,0.56],[0.032,0.66],[0.046,0.69],[0.038,0.715]
+  ].map(p => new THREE.Vector2(p[0], p[1]));
+  const lathe = new THREE.LatheGeometry(pts, 8);
+  const lip = new THREE.TorusGeometry(0.036, 0.009, 4, 10); lip.rotateX(Math.PI/2); lip.translate(0, 0.715, 0);
+  return mergeGeometries([lathe, lip]);
+}
+const bottleGeo = bottleGeometry();
+(function addBottles(){
+  const spots = [
+    [4.7,4.2],[5.3,5.1],[4.9,5.7],[3.6,5.3],[-4.1,4.0],[-5.6,3.8],[2.3,4.4],[1.2,5.6],
+    [1.9,0.3],[-0.4,-2.9],[4.0,-2.1],[-6.7,-0.6],[-3.2,-0.8],[5.9,-1.8],[-8.2,2.2],[6.9,2.4],[-2.6,5.9]
+  ];
+  const mats = [ [PAL.glassGreen],[PAL.glassBrown],[PAL.glassBlue] ];
+  const colors = mats.map(m => new THREE.Color(m[0]));
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness:0.35, metalness:0.05, flatShading:true });
+  const inst = new THREE.InstancedMesh(bottleGeo, mat, spots.length);
+  const dummy = new THREE.Object3D();
+  spots.forEach((s, i) => {
+    const lying = rand() < 0.55;
+    const sc = rr(0.45, 0.62);
+    dummy.position.set(s[0] + rr(-0.15,0.15), 0, s[1] + rr(-0.15,0.15));
+    dummy.rotation.set(0, rand()*Math.PI*2, 0);
+    if (lying){
+      dummy.rotation.z = Math.PI/2 + rr(-0.2, 0.2);
+      dummy.position.y = groundY(s[0], s[1]) + 0.112*sc + 0.012;
+    } else {
+      dummy.position.y = groundY(s[0], s[1]);
+    }
+    dummy.scale.setScalar(sc);
+    dummy.updateMatrix();
+    inst.setMatrixAt(i, dummy.matrix);
+    inst.setColorAt(i, pick(colors));
+  });
+  inst.castShadow = inst.receiveShadow = true;
+  trashLayer.add(inst);
+})();
+
+/* ---------- cans (instanced, two variants) ---------- */
+(function addCans(){
+  const spots = [
+    [3.9,4.6],[-3.7,5.0],[2.6,5.9],[0.6,4.9],[4.5,3.1],[2.2,-0.6],[0.9,-3.3],
+    [-1.6,-3.5],[4.7,-1.6],[-5.9,-0.2],[-3.9,-0.4],[5.2,-2.8],[-8.5,1.4],[3.3,-3.7]
+  ];
+  const cr = spots.map(() => rand() < 0.3);
+  const geoStraight = canGeometry(false), geoCrushed = canGeometry(true);
+  const colList = [PAL.canMetal, PAL.canMetal, PAL.canMetal, PAL.canBlue, PAL.canOrange];
+  const colors = colList.map(c => new THREE.Color(c));
+  const mat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.45, metalness:0.5, flatShading:true });
+  const straight = spots.filter((s,i)=>!cr[i]), crushed = spots.filter((s,i)=>cr[i]);
+  const mk = (geo, list) => {
+    const inst = new THREE.InstancedMesh(geo, mat, list.length);
+    const dummy = new THREE.Object3D();
+    list.forEach((s, i) => {
+      const lying = rand() < 0.6;
+      dummy.position.set(s[0]+rr(-0.2,0.2), 0, s[1]+rr(-0.2,0.2));
+      dummy.rotation.set(0, rand()*Math.PI*2, 0);
+      if (lying){ dummy.rotation.z = Math.PI/2 + rr(-0.25,0.25); dummy.position.y = groundY(s[0], s[1]) + 0.107; }
+      else dummy.position.y = groundY(s[0], s[1]) + 0.14;
+      dummy.scale.setScalar(rr(0.9, 1.15));
+      dummy.updateMatrix();
+      inst.setMatrixAt(list === straight ? i : i, dummy.matrix);
+      inst.setColorAt(i, pick(colors));
+    });
+    inst.castShadow = inst.receiveShadow = true;
+    trashLayer.add(inst);
+  };
+  mk(geoStraight, straight); mk(geoCrushed, crushed);
+})();
+
+/* ---------- tires ---------- */
+function tireGeometry(){
+  const t = new THREE.TorusGeometry(0.4, 0.155, 9, 16);
+  const parts = [t];
+  for (let i=0; i<14; i++){
+    const a = i/14*Math.PI*2;
+    const box = new THREE.BoxGeometry(0.13, 0.07, 0.16);
+    box.translate(0, 0.5, 0);
+    box.rotateZ(a);
+    parts.push(box);
+  }
+  const g = mergeGeometries(parts);
+  g.rotateX(Math.PI/2);
+  return g;
+}
+const tireGeo = tireGeometry();
+function addTire(x, z, opts={}){
+  const g = new THREE.Group();
+  const t = mesh(tireGeo, M(opts.color || PAL.tire, {rough:0.95}));
+  if (opts.flat) t.scale.y = 0.82;
+  t.position.y = opts.lift !== undefined ? opts.lift : (opts.flat ? 0.115 : 0.14); // tube rests on ground
+  g.add(t);
+  if (opts.lean) g.rotation.z = opts.lean;
+  placeOnGround(g, x, z, {embed: opts.embed??0.02, tilt: opts.tilt??0, yaw: opts.yaw});
+  (opts.parent||trashLayer).add(g);
+  return g;
+}
+
+/* ---------- scrap metal / panels / pipes ---------- */
+const scrapMat = M(PAL.rust, {rough:0.6, metal:0.5});
+function addScrapPanel(x, z, opts={}){
+  const w = opts.w || rr(0.6, 1.3);
+  const g = jitterGeo(new THREE.BoxGeometry(w, rr(0.5,0.8), 0.05), 0.06);
+  const p = mesh(g, scrapMat);
+  p.rotation.x = -Math.PI/2 + rr(-0.3, 0.3);
+  const grp = new THREE.Group(); grp.add(p);
+  placeOnGround(grp, x, z, {embed: opts.embed??0.05, tilt: opts.tilt??0.1, yaw: opts.yaw});
+  if (opts.stand){ p.rotation.x = rr(0.95, 1.15); grp.position.y -= 0.25; } // leaning, base buried
+  (opts.parent||trashLayer).add(grp);
+  return grp;
+}
+function addPipe(x, z, len=1.1, opts={}){
+  const g = new THREE.CylinderGeometry(0.075, 0.075, len, 8);
+  const p = mesh(g, metalPipeMat);
+  p.rotation.set(Math.PI/2*0, 0, Math.PI/2*(opts.upright?0:1));
+  const grp = new THREE.Group(); grp.add(p);
+  if (opts.upright){ p.rotation.set(rr(-0.3,0.3),0,rr(-0.3,0.3)); }
+  placeOnGround(grp, x, z, {embed: opts.embed??(opts.upright?0.3:0.07), tilt: opts.tilt??0.05, yaw: opts.yaw, });
+  (opts.parent||trashLayer).add(grp);
+  return grp;
+}
+const metalPipeMat = M(0x6a4a30, {rough:0.55, metal:0.5});
+
+/* ---------- barrels ---------- */
+function barrelGeometry(openTop){
+  const body = new THREE.CylinderGeometry(0.34, 0.34, 0.88, 12, 4);
+  void openTop;
+  const rims = [];
+  for (const y of [0.42, 0.06, -0.42]){
+    const r = new THREE.CylinderGeometry(0.36, 0.36, 0.06, 12);
+    r.translate(0, y, 0); rims.push(r);
+  }
+  const g = mergeGeometries([body, ...rims]);
+  jitterGeo(g, 0.035, 0.2);
+  return g;
+}
+const barrelGeo = barrelGeometry(true);
+const barrelInnerDark = new THREE.CircleGeometry(0.3, 12);
+function addBarrel(x, z, opts={}){
+  const grp = new THREE.Group();
+  const b = mesh(barrelGeo, M(opts.color || PAL.barrel, {rough:0.62, metal:0.45}));
+  grp.add(b);
+  if (opts.open !== false){
+    const inner = mesh(barrelInnerDark, M(0x201b16, {rough:1}), false);
+    inner.rotation.x = -Math.PI/2; inner.position.y = 0.415; inner.position.x = 0.02;
+    grp.add(inner);
+  }
+  placeOnGround(grp, x, z, {embed: opts.embed??0.1, tilt: opts.tilt??0.12, yaw: opts.yaw});
+  if (opts.lying){ grp.rotation.z = Math.PI/2 + rr(-0.12,0.12); grp.position.y = groundY(x,z) - opts.embed + 0.34; }
+  (opts.parent||trashLayer).add(grp);
+  return grp;
+}
+
+/* ============================== MAIN TRASH MOUND CONTENT ============================== */
+/* underlying mass is part of terrain; dress it with recognizable trash */
+(function dressMound(){
+  // larger objects near the bottom
+  addTire(0.2, -2.9, {flat:true, embed:0.16});
+  addTire(-0.6, -3.3, {flat:true, embed:0.18, yaw:0.6});
+  addTire(-4.1, -2.3, {flat:true, embed:0.2, yaw:1.4});
+  addBarrel(2.35, -0.35, {embed:0.3});
+  addBarrel(-4.5, 0.8, {lying:true, embed:0.1});
+  addScrapPanel(0.9, -3.6, {w:1.35});
+  addScrapPanel(2.0, -2.6, {w:1.0, stand:true});
+  addPipe(1.5, -3.9, 1.4);
+  // front-facing slope debris (visible from the initial camera)
+  addBag(1.7, -2.4, {s:1.05});
+  addBag(0.6, -3.4, {s:0.85, color:PAL.bagBlue});
+  addBag(2.9, -0.9, {s:0.75});
+  addCardboardBox(0.3, -2.9, {open:true, tilt:0.5, w:0.8, embed:0.12});
+  addTire(1.4, -1.8, {flat:true, embed:0.16, yaw:0.9});
+  addScrapPanel(2.8, -1.8, {w:0.9});
+  // a few short steel beams
+  for (const [bx, bz, yaw] of [[0.2, -4.3, 0.7], [-4.9, -3.1, 2.1]]){
+    const beam = mesh(new THREE.BoxGeometry(0.14, 0.14, 0.85), M(0x4a4038, {rough:0.55, metal:0.5}));
+    const bg = new THREE.Group(); bg.add(beam);
+    placeOnGround(bg, bx, bz, {embed:0.05, tilt:0.08, yaw});
+    trashLayer.add(bg);
+  }
+  // mid level — garbage bags in clusters on the front-facing slopes
+  addBag(-1.2, -1.4, {s:1.45});
+  addBag(-2.9, -0.9, {s:1.2});
+  addBag(-1.8, -2.3, {s:1.05, color:PAL.bagBlue});
+  addBag(-3.3, -2.0, {s:0.9});
+  addBag(-0.6, -0.7, {s:0.8, color:PAL.bagOlive});
+  addBag(-4.4, -1.1, {s:0.85});
+  addBag(0.9, -1.6, {s:0.95});
+  addBag(-0.2, -2.6, {s:0.9, color:PAL.bagOlive});
+  // cardboard boxes
+  addCardboardBox(-2.4, -2.2, {open:true, h:0.75});
+  addCardboardBox(-3.5, -1.2, {open:false, tilt:0.3, w:0.85});
+  addCardboardBox(-1.0, -3.0, {open:true, tilt:0.4, w:0.8});
+  addCardboardBox(-4.0, -2.7, {open:true, tilt:0.55, w:0.75, embed:0.1});
+  // upper half — smaller debris
+  addBag(-2.0, -1.7, {s:0.55, embed:0.1});
+  addBag(-2.9, -1.9, {s:0.5});
+  addBag(-1.3, -2.5, {s:0.45, color:PAL.bagBlue});
+  addBag(-2.4, -1.0, {s:0.42, color:PAL.bagOlive});
+  addBag(5.6, -1.0, {s:0.7});
+  // bent pipe emerging from the pile
+  const bend = new THREE.Group();
+  const p1 = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.7, 8), metalPipeMat);
+  const p2 = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 8), metalPipeMat);
+  p1.position.set(0, 0.35, 0); p1.rotation.z = 0.25;
+  p2.position.set(0.28, 0.72, 0); p2.rotation.z = -1.1;
+  bend.add(p1, p2);
+  placeOnGround(bend, -3.8, -2.6, {embed:0.05, tilt:0.08, yaw:1.2});
+  trashLayer.add(bend);
+})();
+
+/* ---- secondary piles ---- */
+(function dressSidePiles(){
+  // right pile
+  for (let i=0; i<5; i++) addBag(MOUND2.x + rr(-1.2,1.2), MOUND2.z + rr(-1.2,1.2), {s:rr(0.45,0.85)});
+  addTire(MOUND2.x-0.9, MOUND2.z+0.8, {flat:true, embed:0.14});
+  addCardboardBox(MOUND2.x+0.8, MOUND2.z-0.4, {open:true, tilt:0.5});
+  addScrapPanel(MOUND2.x+0.2, MOUND2.z+1.1, {w:0.8});
+  addTire(MOUND2.x+0.1, MOUND2.z-0.9, {flat:true, embed:0.14, yaw:1.9});
+  addTire(MOUND2.x+0.1, MOUND2.z-0.9, {embed:0.16, tilt:0, yaw:0.4}); // stacked
+  // left pile
+  for (let i=0; i<4; i++) addBag(MOUND3.x + rr(-1.1,1.1), MOUND3.z + rr(-1.1,1.1), {s:rr(0.4,0.8)});
+  addCardboardBox(MOUND3.x+0.6, MOUND3.z+0.6, {open:false, tilt:0.35});
+  addBarrel(MOUND3.x-0.9, MOUND3.z-0.6, {lying:true, embed:0.1});
+  addPipe(MOUND3.x, MOUND3.z+0.9, 0.9);
+})();
+
+/* ============================== LARGE DISCARDED OBJECTS ============================== */
+/* ---------- refrigerator ---------- */
+(function fridge(){
+  const g = new THREE.Group();
+  const cream = M(PAL.cream, {rough:0.7}), creamD = M(PAL.creamDirty, {rough:0.8});
+  const W=1.05, H=1.55, D=0.85;
+  g.add(mesh(new THREE.BoxGeometry(W, H, 0.07).translate(0, H/2, -D/2+0.035), cream));
+  g.add(mesh(new THREE.BoxGeometry(0.07, H, D-0.14).translate(-W/2+0.035, H/2, 0), cream));
+  g.add(mesh(new THREE.BoxGeometry(0.07, H, D-0.14).translate(W/2-0.035, H/2, 0), cream));
+  g.add(mesh(new THREE.BoxGeometry(W, 0.07, D).translate(0, H-0.035, 0), cream));
+  g.add(mesh(new THREE.BoxGeometry(W-0.14, 0.09, D-0.14).translate(0, 0.045, 0), creamD));
+  // interior
+  g.add(mesh(new THREE.BoxGeometry(W-0.18, H-0.1, D-0.2).translate(0, H/2, -0.05), M(0x2a2622, {rough:1})));
+  g.add(mesh(new THREE.BoxGeometry(W-0.26, 0.04, D-0.28).translate(0, H*0.66, -0.04), M(0x8b8880, {rough:0.9})));
+  g.add(mesh(new THREE.BoxGeometry(W-0.26, 0.04, D-0.28).translate(0, H*0.4, -0.04), M(0x8b8880, {rough:0.9})));
+  // door hanging open
+  const door = new THREE.Group();
+  door.position.set(-W/2, 0, 0);
+  const doorMesh = mesh(new THREE.BoxGeometry(W-0.06, H-0.16, 0.06).translate((W-0.06)/2, H/2, 0.03), cream);
+  doorMesh.position.set(0.02, 0.09, 0);
+  door.add(doorMesh);
+  const handle = mesh(new THREE.BoxGeometry(0.05, 0.5, 0.05).translate(0, H/2, 0), M(PAL.steel, {rough:0.5, metal:0.4}));
+  handle.position.set(W-0.16, 0.25, 0.09);
+  door.add(handle);
+  door.rotation.y = rr(0.75, 0.95);
+  g.add(door);
+  // rust patches near base
+  for (let i=0; i<4; i++){
+    const r = mesh(new THREE.BoxGeometry(rr(0.1,0.25), rr(0.05,0.12), 0.02), M(pick([PAL.rust, PAL.rustDark]), {rough:0.9}));
+    r.position.set(rr(-W/2+0.1, W/2-0.1), rr(0.05,0.3), D/2+0.01);
+    g.add(r);
+  }
+  placeOnGround(g, -6.7, 1.6, {embed:0.04, tilt:0, yaw:0.65});
+  g.rotation.z += 0.07; g.rotation.x += -0.045; // slight tilt, resting on debris
+  trashLayer.add(g);
+  addBag(-5.9, 1.1, {s:0.7});
+  addBag(-6.1, 2.3, {s:0.6});
+})();
+
+/* ---------- broken sofa ---------- */
+(function sofa(){
+  const g = new THREE.Group();
+  const fab = M(PAL.sofaFabric, {rough:0.98}), fab2 = M(PAL.sofaFabric2, {rough:0.98});
+  const base = jitterGeo(new THREE.BoxGeometry(2.0, 0.4, 0.85), 0.04);
+  g.add(mesh(base.translate(0, 0.28, 0), fab));
+  const back = jitterGeo(new THREE.BoxGeometry(2.0, 0.62, 0.26), 0.05);
+  g.add(mesh(back.translate(0, 0.72, -0.3), fab));
+  g.children[1].rotation.x = 0.08;
+  // seat cushions — sagging, broad angular shapes
+  const c1 = mesh(jitterGeo(new THREE.BoxGeometry(0.85, 0.18, 0.66), 0.05), fab2);
+  c1.position.set(-0.48, 0.5, 0.04); c1.rotation.z = 0.03; c1.rotation.x = 0.03;
+  const c2 = mesh(jitterGeo(new THREE.BoxGeometry(0.85, 0.16, 0.66), 0.05), fab2);
+  c2.position.set(0.45, 0.46, 0.04); c2.rotation.z = -0.05; c2.rotation.x = 0.05; // sagging
+  g.add(c1, c2);
+  // right armrest, left armrest damaged with exposed wood
+  g.add(mesh(jitterGeo(new THREE.BoxGeometry(0.26, 0.55, 0.85), 0.03).translate(0.95, 0.6, 0), fab));
+  const armL = mesh(new THREE.BoxGeometry(0.26, 0.3, 0.6).translate(-0.95, 0.5, 0), fab);
+  armL.rotation.z = 0.14;
+  g.add(armL);
+  const woodSup = mesh(new THREE.BoxGeometry(0.1, 0.42, 0.1).translate(0,0.1,0), M(PAL.wood, {rough:0.95}));
+  woodSup.position.set(-0.95, 0.45, -0.18); woodSup.rotation.z = -0.1;
+  g.add(woodSup);
+  placeOnGround(g, -3.0, 3.3, {embed:0.1, tilt:0, yaw:2.4});
+  g.rotation.z += 0.04;
+  trashLayer.add(g);
+})();
+
+/* ============================== TIPPED DUMPSTER ============================== */
+(function dumpster(){
+  const g = new THREE.Group();
+  const paint = M(PAL.dumpsterGreen, {rough:0.75, metal:0.25});
+  const paintD = M(0x4c5a4c, {rough:0.8, metal:0.2});
+  // tapered body
+  const body = new THREE.BoxGeometry(2.5, 1.4, 1.5, 1, 1, 1);
+  { const p = body.attributes.position;
+    for (let i=0; i<p.count; i++){ if (p.getY(i) < 0){ p.setX(i, p.getX(i)*0.9); p.setZ(i, p.getZ(i)*0.9); } }
+    body.computeVertexNormals(); }
+  g.add(mesh(body.translate(0, 0.78, 0), paint));
+  // interior
+  g.add(mesh(new THREE.BoxGeometry(2.28, 1.16, 1.28).translate(0, 0.82, 0), M(0x24211d, {rough:1})));
+  // top rim
+  g.add(mesh(new THREE.BoxGeometry(2.56, 0.09, 1.56).translate(0, 1.5, 0), paintD));
+  // corner posts
+  for (const sx of [-1,1]) for (const sz of [-1,1]){
+    g.add(mesh(new THREE.BoxGeometry(0.09, 1.48, 0.09).translate(sx*1.24, 0.78, sz*0.72), paintD));
+  }
+  // rust patches
+  for (let i=0; i<7; i++){
+    const r = mesh(new THREE.BoxGeometry(rr(0.12,0.34), rr(0.1,0.3), 0.02), M(pick([PAL.rust, PAL.rustDark]), {rough:0.9}));
+    const side = rand()<0.5;
+    r.position.set(side ? rr(-1.2,1.2) : pick([-1.253, 1.253]), rr(0.25,1.3), side ? pick([-0.743,0.743]) : rr(-0.65,0.65));
+    if (side) r.rotation.y = rr(-0.2,0.2); else r.rotation.y = Math.PI/2;
+    g.add(r);
+  }
+  // bags inside (placed directly in dumpster-local space)
+  const bagInside = (bx, by, bz, s, col, rz) => {
+    const b = mesh(pick(bagGeos), M(col, {rough:0.85}));
+    b.scale.setScalar(s);
+    b.position.set(bx, by, bz);
+    b.rotation.set(rr(-0.15,0.15), rand()*Math.PI*2, rz);
+    g.add(b);
+  };
+  bagInside(-0.55, 1.15, 0.1, 0.6, PAL.bagCharcoal, 0.15);
+  bagInside(0.5, 1.08, -0.2, 0.55, PAL.bagOlive, -0.2);
+  bagInside(0.1, 1.0, 0.25, 0.45, PAL.bagBlue, 0.3);
+  const lid = mesh(new THREE.BoxGeometry(2.56, 0.07, 0.85).translate(0, 0.035, 0.425), paint);
+  lid.position.set(0, 0.04, 0);
+  const lidPivot = new THREE.Group();
+  lidPivot.add(lid);
+  lidPivot.position.set(0, 1.49, -0.78);
+  lidPivot.rotation.x = -1.05;
+  g.add(lidPivot);
+  // wheels / feet
+  for (const sx of [-1,1]) for (const sz of [-1,1]){
+    const w = mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.09, 8), M(PAL.steelDark, {rough:0.7}));
+    w.rotation.z = Math.PI/2;
+    w.position.set(sx*0.95, 0.1, sz*0.62);
+    g.add(w);
+  }
+  placeOnGround(g, 4.0, -2.9, {embed:0.08, tilt:0});
+  g.rotation.y = -0.55;
+  g.rotation.z = 0.07; g.rotation.x = -0.06; // tipped slightly toward pile
+  trashLayer.add(g);
+  // support debris under the mound-side end and the open end
+  addBag(3.0, -3.75, {s:0.85, embed:0.18});
+  addBag(4.95, -3.55, {s:0.7, embed:0.15});
+  addTire(2.6, -3.4, {flat:true, embed:0.12, yaw:2.2});
+  // spill down the slope
+  addBag(2.55, -2.0, {s:0.75, embed:0.1});
+  addBag(2.1, -1.35, {s:0.55, color:PAL.bagOlive});
+  // plastic crate
+  addCrate(2.95, -1.45);
+})();
+
+/* plastic crate */
+function addCrate(x, z, opts={}){
+  const g = new THREE.Group();
+  const pm = M(PAL.plasticOrange, {rough:0.85});
+  const w=0.62, h=0.3, d=0.45;
+  for (const [dx,dz,lx,lz] of [[w/2,0,0.05,d],[ -w/2,0,0.05,d],[0,d/2,w,0.05],[0,-d/2,w,0.05]]){
+    g.add(mesh(new THREE.BoxGeometry(lx,h,lz).translate(dx,h/2,dz), pm));
+  }
+  g.add(mesh(new THREE.BoxGeometry(w-0.08, 0.03, d-0.08).translate(0, h-0.015, 0), pm));
+  for (let i=0; i<3; i++) g.add(mesh(new THREE.BoxGeometry(0.05, 0.02, d-0.1).translate((i-1)*0.2, 0.09, 0), M(PAL.plasticOrange)));
+  placeOnGround(g, x, z, {embed:0.01, tilt:0.2, yaw:opts.yaw});
+  g.rotation.x = Math.PI/2*0 + (opts.flipped ? Math.PI : 0);
+  if (opts.flipped){ g.position.y = groundY(x,z)+0.28; }
+  (opts.parent||trashLayer).add(g);
+  return g;
+}
+
+/* ============================== SMALL BULLDOZER ============================== */
+const dozer = new THREE.Group();
+(function buildDozer(){
+  const yellow = M(PAL.yellow, {rough:0.72}), yellowDark = M(PAL.yellowDark, {rough:0.8});
+  const steel = M(PAL.steel, {rough:0.55, metal:0.4});
+  const steelD = M(PAL.steelDark, {rough:0.6, metal:0.35});
+  const rubber = M(PAL.tireOld, {rough:0.95});
+  const glass = new THREE.MeshStandardMaterial({ color: PAL.window, roughness:0.25, metalness:0.1, transparent:true, opacity:0.45 });
+  const rustM = M(PAL.rustDark, {rough:0.85, metal:0.3});
+
+  const trackShapeLen = 2.0, trackShapeH = 0.92, R = 0.3;
+  const trackLoop = (() => {
+    const mkPath = (path, w, h, r1) => {
+      path.moveTo(-w/2+r1, -h/2);
+      path.lineTo(w/2-r1, -h/2);   path.absarc(w/2-r1, -h/2+r1, r1, -Math.PI/2, 0);
+      path.lineTo(w/2, h/2-r1);    path.absarc(w/2-r1, h/2-r1, r1, 0, Math.PI/2);
+      path.lineTo(-w/2+r1, h/2);   path.absarc(-w/2+r1, h/2-r1, r1, Math.PI/2, Math.PI);
+      path.lineTo(-w/2, -h/2+r1);  path.absarc(-w/2+r1, -h/2+r1, r1, Math.PI, Math.PI*1.5);
+    };
+    const shape = new THREE.Shape(); mkPath(shape, trackShapeLen, trackShapeH, R);
+    const hole = new THREE.Path(); mkPath(hole, trackShapeLen-0.2, trackShapeH-0.2, R-0.1);
+    shape.holes.push(hole);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth:0.34, bevelEnabled:false, curveSegments:5 });
+    geo.rotateY(Math.PI/2); geo.translate(-0.17, 0, 0);
+    return { geo, shape, };
+  })();
+  const trackGeo = trackLoop.geo;
+
+  // tread plates instanced around the loop
+  const platePts = trackLoop.shape.getPoints(6);
+  const plateList = [];
+  for (let i=0; i<platePts.length; i++){
+    const a = platePts[i], b = platePts[(i+1)%platePts.length];
+    const d = Math.hypot(b.x-a.x, b.y-a.y);
+    const steps = Math.max(1, Math.round(d/0.18));
+    for (let s=0; s<steps; s++){
+      const t = s/steps;
+      plateList.push({ x: a.x+(b.x-a.x)*t, y: a.y+(b.y-a.y)*t,
+        tx: (b.x-a.x)/d, ty: (b.y-a.y)/d });
+    }
+  }
+  const plateGeo = new THREE.BoxGeometry(0.16, 0.05, 0.32);
+  plateGeo.rotateY(Math.PI/2);
+  const qY90 = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI/2, 0));
+  for (const side of [-1, 1]){
+    const track = new THREE.Group();
+    track.add(mesh(trackGeo, rubber));
+    // wheels inside
+    for (const [wz, wy, wr] of [[-0.62, 0.12, 0.13], [0, 0.15, 0.15], [0.62, 0.12, 0.13], [-0.35, 0.27, 0.08], [0.35, 0.27, 0.08]]){
+      const w = mesh(new THREE.CylinderGeometry(wr, wr, 0.3, 10), steel);
+      w.rotation.z = Math.PI/2; w.position.set(0, wy, wz);
+      track.add(w);
+    }
+    const inst = new THREE.InstancedMesh(plateGeo, rubber, plateList.length);
+    const dummy = new THREE.Object3D();
+    plateList.forEach((p, i) => {
+      // shape-space (x,y) -> world (z-axis, y-axis): (sx,sy) -> (0, sy, -sx)
+      const nl = Math.hypot(p.x, p.y) || 1;
+      const nx = p.x/nl, ny = p.y/nl;
+      dummy.position.set(0, p.y + ny*0.03, -p.x - nx*0.03);
+      const qZ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.atan2(p.ty, p.tx)));
+      dummy.quaternion.copy(qY90).multiply(qZ);
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      inst.setMatrixAt(i, dummy.matrix);
+    });
+    inst.castShadow = inst.receiveShadow = true;
+    track.add(inst);
+    track.position.set(side*0.62, 0.47, -0.1);
+    dozer.add(track);
+  }
+
+  // track side frames
+  for (const side of [-1,1]){
+    dozer.add(mesh(new THREE.BoxGeometry(0.36, 0.2, 2.1).translate(0, 0.02, 0), steel).translateX(side*0.61).translateY(1.0).translateZ(-0.1));
+  }
+  // deck + chassis
+  dozer.add(mesh(new THREE.BoxGeometry(1.3, 0.16, 2.05).translate(0, 1.1, -0.1), yellowDark));
+  dozer.add(mesh(new THREE.BoxGeometry(1.42, 0.5, 0.95).translate(0, 1.35, 0.55), yellow)); // engine compartment front
+  dozer.add(mesh(new THREE.BoxGeometry(1.2, 0.42, 0.95).translate(0, 1.31, -0.55), yellow)); // rear engine cover
+  // vents
+  for (let i=0; i<3; i++) dozer.add(mesh(new THREE.BoxGeometry(1.44, 0.05, 0.08).translate(0, 1.2+i*0.12, 1.02), steelD));
+  // exhaust
+  const ex = mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.5, 8), steel);
+  ex.position.set(0.4, 1.78, -0.4); dozer.add(ex);
+  const exTip = mesh(new THREE.CylinderGeometry(0.065, 0.06, 0.08, 8), rustM);
+  exTip.position.set(0.4, 2.05, -0.4); dozer.add(exTip);
+
+  // cabin with thick framing
+  const cabX = 0, cabZ = -0.35, cabW = 1.15, cabD = 0.95, cabH = 0.62, cabBase = 1.48;
+  const frame = M(PAL.yellowDark, {rough:0.75});
+  // corner posts
+  for (const sx of [-1,1]) for (const sz of [-1,1]){
+    dozer.add(mesh(new THREE.BoxGeometry(0.07, cabH, 0.07).translate(sx*(cabW/2-0.035), cabBase+cabH/2, cabZ+sz*(cabD/2-0.035)), frame));
+  }
+  dozer.add(mesh(new THREE.BoxGeometry(cabW, 0.06, cabD).translate(cabX, cabBase+cabH+0.03, cabZ), yellowDark)); // roof
+  // windows
+  const wg = (w, h, x, y, z, ry) => { const p = mesh(new THREE.BoxGeometry(w, h, 0.02), glass); p.position.set(x, y, z); p.rotation.y = ry; dozer.add(p); };
+  wg(cabW-0.16, cabH-0.12, cabX, cabBase+cabH/2, cabZ+cabD/2-0.03, 0);
+  wg(cabW-0.16, cabH-0.12, cabX, cabBase+cabH/2, cabZ-cabD/2+0.03, 0);
+  wg(cabD-0.16, cabH-0.12, cabX-cabW/2+0.03, cabBase+cabH/2, cabZ, Math.PI/2);
+  wg(cabD-0.16, cabH-0.12, cabX+cabW/2-0.03, cabBase+cabH/2, cabZ, Math.PI/2);
+  // seat + steering visible through cabin
+  dozer.add(mesh(new THREE.BoxGeometry(0.42, 0.1, 0.4).translate(cabX, cabBase+0.12, cabZ-0.18), steelD));
+  dozer.add(mesh(new THREE.BoxGeometry(0.42, 0.36, 0.08).translate(cabX, cabBase+0.34, cabZ-0.36), steelD));
+  const stick = mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.3, 6), steel);
+  stick.position.set(cabX+0.3, cabBase+0.25, cabZ-0.05); stick.rotation.x = 0.25; dozer.add(stick);
+
+  // front blade — broad, thickness, angled side edges
+  const bladeGeo = new THREE.BoxGeometry(2.05, 0.85, 0.14);
+  { const p = bladeGeo.attributes.position;
+    for (let i=0; i<p.count; i++){
+      if (p.getY(i) > 0){ p.setX(i, p.getX(i)*0.8); p.setZ(i, p.getZ(i)-0.06); }
+    }
+    bladeGeo.computeVertexNormals(); }
+  const blade = mesh(bladeGeo, yellow);
+  blade.position.set(0, 0.5, 1.5);
+  blade.rotation.x = -0.1;
+  // blade cutting edge (steel)
+  const edge = mesh(new THREE.BoxGeometry(2.0, 0.09, 0.17), steelD);
+  edge.position.set(0, 0.13, 1.5);
+  edge.rotation.x = -0.1;
+  dozer.add(blade, edge);
+  // support arms to chassis
+  for (const side of [-1,1]){
+    const arm = mesh(new THREE.BoxGeometry(0.09, 0.09, 0.8), steel);
+    arm.position.set(side*0.62, 0.95, 1.12);
+    arm.rotation.x = 0.5;
+    dozer.add(arm);
+    const pivot = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.12, 8), steelD);
+    pivot.rotation.z = Math.PI/2;
+    pivot.position.set(side*0.62, 1.2, 0.78);
+    dozer.add(pivot);
+  }
+  // push frame between blade and arms
+  const pushBeam = mesh(new THREE.BoxGeometry(1.3, 0.14, 0.12), steel);
+  pushBeam.position.set(0, 1.2, 1.16); pushBeam.rotation.x = 0.5;
+  dozer.add(pushBeam);
+
+  // moderate wear: one dark panel + rust spots
+  dozer.add(mesh(new THREE.BoxGeometry(0.5, 0.4, 0.03).translate(-0.3, 1.35, 1.05), rustM));
+  for (let i=0; i<5; i++){
+    const r = mesh(new THREE.BoxGeometry(rr(0.06,0.16), rr(0.05,0.12), 0.02), rustM);
+    r.position.set(rr(-0.7,0.7), rr(1.0,1.7), rr(-1.0,1.05));
+    r.rotation.y = rr(-0.2,0.2);
+    dozer.add(r);
+  }
+
+  placeOnGround(dozer, 4.0, 2.8, {embed:0.02, tilt:0});
+  dozer.rotation.y = -0.75;
+  trashLayer.add(dozer);
+})();
+
+/* ============================== FENCE AND PERIMETER ============================== */
+(function fence(){
+  const g = new THREE.Group();
+  const postM = M(0x66625c, {rough:0.7, metal:0.35});
+  const railM = M(PAL.metalWire, {rough:0.55, metal:0.4});
+  const z = -8.25;
+  const postsX = [-9.4, -7.7, -6.0, -4.3, -2.6, -1.0];
+  const heights = postsX.map((x, i) => {
+    const p = mesh(new THREE.BoxGeometry(0.11, 1.0, 0.11), postM);
+    const h = rr(0.95, 1.35);
+    p.scale.y = h;
+    const wx = groundY(x, z);
+    p.position.set(x + rr(-0.05,0.05), wx + h/2 - 0.03, z + rr(-0.05,0.05));
+    let lean = (rand()-0.5)*0.12;
+    if (x === -4.3) lean = 0.34;
+    if (x === -2.6) lean = 0.26;
+    p.rotation.z = lean; p.rotation.x = (rand()-0.5)*0.1;
+    g.add(p);
+    return { x: p.position.x, h, wx };
+  });
+  // horizontal rails between posts
+  for (let i=0; i<postsX.length-1; i++){
+    const a = heights[i], b = heights[i+1];
+    const bent = (i >= 3 && i <= 4);
+    const lvl = [0.55, 1.0];
+    for (const ly of lvl){
+      const len = Math.hypot(b.x-a.x, (b.wx+b.h*ly) - (a.wx+a.h*ly));
+      const rail = mesh(new THREE.BoxGeometry(len, 0.05, 0.035), railM);
+      rail.position.set((a.x+b.x)/2, (a.wx+b.wx)/2 + ly + (bent? -0.08:0), z);
+      rail.rotation.z = Math.atan2((b.wx+b.h*ly)-(a.wx+a.h*ly), b.x-a.x) + (bent ? 0.18 : 0);
+      g.add(rail);
+    }
+  }
+  // thin vertical mesh slats (instanced), with one missing section
+  const slatGeo = new THREE.BoxGeometry(0.028, 0.85, 0.018);
+  const slabList = [];
+  for (let i=0; i<postsX.length-1; i++){
+    const a = heights[i], b = heights[i+1];
+    const missing = (i === 2); // one missing section
+    for (let sx=a.x+0.14; sx<b.x-0.1; sx+=0.15){
+      const t = (sx-a.x)/(b.x-a.x);
+      if (!missing && rand() < 0.12) continue; // sparse missing slats elsewhere
+      slabList.push({ x: sx, wx: terrainH(sx, z)*0.7 + (a.wx + b.wx)*0.15 + 0.48, });
+    }
+  }
+  const inst = new THREE.InstancedMesh(slatGeo, railM, slabList.length);
+  const dummy = new THREE.Object3D();
+  slabList.forEach((s, i) => {
+    dummy.position.set(s.x, s.wx, z);
+    dummy.rotation.set(0, 0, (rand()-0.5)*0.1);
+    dummy.updateMatrix();
+    inst.setMatrixAt(i, dummy.matrix);
+  });
+  inst.castShadow = inst.receiveShadow = true;
+  g.add(inst);
+  // bent section wire sag
+  const sagRail = mesh(new THREE.BoxGeometry(1.75, 0.035, 0.03), railM);
+  sagRail.position.set(-3.45, terrainH(-3.45, z)+0.34, z+0.03);
+  sagRail.rotation.z = 0.3;
+  g.add(sagRail);
+  flowers.add(g);
+})();
+
+/* leaning sign panel */
+(function sign(){
+  const g = new THREE.Group();
+  const post = mesh(new THREE.CylinderGeometry(0.05, 0.06, 1.6, 6), M(PAL.rust, {rough:0.7, metal:0.35}));
+  post.position.y = 0.75;
+  const panel = mesh(new THREE.BoxGeometry(1.35, 0.85, 0.05), M(PAL.rustDark, {rough:0.85, metal:0.2}));
+  panel.position.y = 1.55;
+  for (let i=0; i<4; i++){
+    const r = mesh(new THREE.BoxGeometry(rr(0.1,0.3), rr(0.08,0.2), 0.02), M(pick([PAL.rust, 0x4a4238]), {rough:0.9}));
+    r.position.set(rr(-0.55,0.55), rr(-0.3,0.3), 0.03);
+    panel.add(r);
+  }
+  g.add(post, panel);
+  g.position.set(1.9, groundY(1.9, -8.0) - 0.06, -8.0);
+  g.rotation.set(0, -0.4, 0.24);
+  flowers.add(g);
+})();
+
+/* ============================== PUDDLE ============================== */
+const ripples = [];
+(function puddle(){
+  const g = new THREE.Group();
+  const blob = (r, wob, mat, y) => {
+    const geo = new THREE.CircleGeometry(r, 22);
+    const p = geo.attributes.position;
+    for (let i=0; i<p.count; i++){
+      const x=p.getX(i), zp=-p.getY(i);
+      if (Math.hypot(x, p.getY(i)) > r*0.5){
+        const a = Math.atan2(zp, x);
+        const k = 1 + (hash2(a*2.3, 7.3)-0.5)*wob*2;
+        p.setX(i, x*k); p.setY(i, -zp*k);
+      }
+    }
+    geo.rotateX(-Math.PI/2);
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, mat);
+    m.position.y = y;
+    m.receiveShadow = true;
+    return m;
+  };
+  const wy = terrainH(POND.x, POND.z);
+  g.add(blob(POND.r*1.06, 0.16, M(PAL.pondBorder, {rough:1, poff:1}), -0.01));
+  const water = blob(POND.r*0.92, 0.16, new THREE.MeshStandardMaterial({
+    color: PAL.waterMud, roughness:0.85, metalness:0.05, flatShading:true,
+    transparent:true, opacity:0.92, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2
+  }), 0.02);
+  g.add(water);
+  // submerged stones
+  for (let i=0; i<4; i++){
+    const a = rand()*Math.PI*2, d = POND.r*rr(0.25,0.6);
+    const st = mesh(stoneGeo(rr(0.07,0.12)), M(pick([PAL.stone2, 0x5f574c]), {rough:0.95}));
+    st.position.set(Math.cos(a)*d, -0.02, Math.sin(a)*d);
+    st.scale.y = 0.5;
+    g.add(st);
+  }
+  placeOnGround(g, POND.x, POND.z, {embed:0, tilt:0, yaw:0.7});
+  trashLayer.add(g);
+  // expanding ripples
+  for (let i=0; i<3; i++){
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.55, 24), new THREE.MeshBasicMaterial({
+      color: 0x969b8a, transparent:true, opacity:0, side:THREE.DoubleSide
+    }));
+    ring.rotation.x = -Math.PI/2;
+    ring.position.set(rr(-0.3,0.3), wy - terrainH(POND.x, POND.z) + 0.075, rr(-0.3,0.3));
+    ring.userData.phase = i/3;
+    ripples.push(ring);
+    g.add(ring);
+  }
+})();
+function stoneGeo(r){
+  const g = new THREE.DodecahedronGeometry(r, 0);
+  g.scale(rr(0.8,1.3), rr(0.55,0.85), rr(0.8,1.3));
+  return g;
+}
+
+/* ============================== SMALL STORY DETAILS ============================== */
+/* worn boot beside a tire */
+(function boot(){
+  const g = new THREE.Group();
+  const bm = M(PAL.boot, {rough:0.98});
+  g.add(mesh(new THREE.BoxGeometry(0.24, 0.08, 0.42).translate(0, 0.04, 0), bm));
+  g.add(mesh(jitterGeo(new THREE.BoxGeometry(0.2, 0.2, 0.3), 0.02).translate(0, 0.2, -0.03), bm));
+  g.add(mesh(new THREE.BoxGeometry(0.22, 0.09, 0.06).translate(0, 0.28, -0.16), M(0x3c332b, {rough:1})));
+  placeOnGround(g, 3.65, 6.1, {embed:0.01, tilt:0.1, yaw:2.4});
+  trashLayer.add(g);
+  addTire(3.05, 6.0, {embed:0.05});
+  addTire(5.2, 6.4, {lean:0.55, embed:0.02, yaw:0.8});
+})();
+/* small bucket */
+(function bucket(){
+  const g = new THREE.Group();
+  const b = mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.26, 9), M(PAL.plasticBlue, {rough:0.8}));
+  b.position.y = 0.13;
+  const rim = mesh(new THREE.TorusGeometry(0.17, 0.014, 5, 10).rotateX(Math.PI/2).translate(0, 0.26, 0), M(PAL.plasticBlue, {rough:0.8}));
+  const handle = mesh(new THREE.TorusGeometry(0.15, 0.011, 5, 10, Math.PI).rotateZ(Math.PI/2*0).rotateY(Math.PI/2), M(PAL.steel, {rough:0.5, metal:0.5}));
+  handle.position.y = 0.2; handle.rotation.z = 0;
+  g.add(b, rim, handle);
+  placeOnGround(g, -3.6, 6.15, {embed:0.01, tilt:0.09, yaw:1.2});
+  trashLayer.add(g);
+})();
+/* loose plastic crate near foreground */
+addCrate(-1.2, 6.4, {yaw:0.7, flipped:false});
+
+/* shopping basket frame (overturned) */
+(function basketFrame(){
+  const g = new THREE.Group();
+  const w = 0.5, d = 0.36, h = 0.28;
+  const wire = M(PAL.metalWire, {rough:0.5, metal:0.45});
+  for (const sx of [-1,1]) for (const sz of [-1,1])
+    g.add(mesh(new THREE.CylinderGeometry(0.015, 0.015, h, 5).translate(sx*w/2, h/2, sz*d/2), wire));
+  g.add(mesh(new THREE.BoxGeometry(w+0.03, 0.02, d+0.03).translate(0, h, 0), wire));
+  g.add(mesh(new THREE.BoxGeometry(w, 0.02, d).translate(0, 0.02, 0), wire));
+  for (let i=0; i<5; i++) g.add(mesh(new THREE.BoxGeometry(0.018, h, 0.018).translate(-w/2+i*(w/4), h/2, d/2), wire));
+  // lying on its side, half sunk — clearly overturned
+  g.rotation.set(0, 0, Math.PI/2);
+  g.position.set(0.9, groundY(0.9, 2.9) + 0.1, 2.9);
+  g.rotation.y = 1.9;
+  trashLayer.add(g);
+})();
+
+/* ============================== STONES, ROCKS, VEGETATION ============================== */
+const swayers = [];
+(function perimeter(){
+  // embedded stones near the edges
+  for (let i=0; i<9; i++){
+    const side = ri(0, 3);
+    let x, z;
+    if (side === 0){ x = rr(-9, 9); z = -8.4; }
+    else if (side === 1){ x = rr(-9, 9); z = 8.2; }
+    else if (side === 2){ x = -10.2; z = rr(-7, 6); }
+    else { x = 10.2; z = rr(-7, 6); }
+    if (Math.abs(x-2.7) < 2.2 && z > 5) continue; // keep path entrance clear
+    const st = mesh(stoneGeo(rr(0.2, 0.48)), M(pick([PAL.stone, PAL.stone2, 0x7d7466]), {rough:0.95}));
+    placeOnGround(st, x, z, {embed:rr(0.1,0.24), tilt:0.05, yaw: rand()*7});
+    trashLayer.add(st);
+  }
+  // angular rocks near mound
+  for (let i=0; i<5; i++){
+    const st = mesh(new THREE.DodecahedronGeometry(rr(0.25,0.5), 0), M(0x7a716a, {rough:0.95}));
+    st.scale.set(rr(0.8,1.4), rr(0.5,0.8), rr(0.8,1.2));
+    placeOnGround(st, MOUND.x + rr(-4.5,4.5), MOUND.z + rr(-3.8,3.8) + 4.6*0.4, {embed:0.15, tilt:0.05});
+    trashLayer.add(st);
+  }
+})();
+/* grass tufts that sway */
+function grassTuft(x, z, s=1){
+  const g = new THREE.Group();
+  const n = ri(5, 8);
+  for (let i=0; i<n; i++){
+    const h = rr(0.25, 0.6)*s;
+    const blade = mesh(new THREE.ConeGeometry(rr(0.018,0.038), h, 4),
+      M(pick([PAL.dryGrass, PAL.dryGrass2, PAL.leafOlive]), {rough:1}));
+    const a = rand()*Math.PI*2, d = rr(0, 0.09*s);
+    blade.position.set(Math.cos(a)*d, h/2, Math.sin(a)*d);
+    blade.rotation.set(rr(-0.3,0.3), 0, rr(-0.3,0.3));
+    g.add(blade);
+  }
+  placeOnGround(g, x, z, {embed:0.02, tilt:0, yaw: rand()*7});
+  g.userData.phase = rand()*Math.PI*2;
+  g.userData.baseRX = g.rotation.x;
+  g.userData.baseRZ = g.rotation.z;
+  swayers.push(g);
+  flowers.add(g);
+  return g;
+}
+(function vegetation(){
+  const perimeterPts = [];
+  for (let i=0; i<16; i++){
+    const side = ri(0, 2);
+    let x, z;
+    if (side === 0){ x = rr(-10.4, 10.4); z = rr(7.6, 8.6); }       // front edge
+    else if (side === 1){ x = pick([-10.4, -9.6, 10.4, 9.8]); z = rr(-6, 7); } // sides
+    else { x = rr(-10.2, 9.2); z = rr(-8.7, -6.8); }                // rear edge
+    if (pathInfo(x, z).dist < 1.6) continue;
+    perimeterPts.push([x, z]);
+  }
+  for (const [x, z] of perimeterPts) grassTuft(x, z, rr(0.8, 1.3));
+  // weeds around fence post bases
+  for (const x of [-9.4, -7.7, -6.0, -4.3, -2.6]) grassTuft(x+rr(-0.3,0.3), -7.95, rr(1.0, 1.4));
+  // a couple of dry bushes in the background
+  for (const [x, z] of [[-8.6, -7.4], [8.9, -7.0], [9.6, 4.6]]){
+    const bush = new THREE.Group();
+    for (let i=0; i<3; i++){
+      const b = mesh(new THREE.DodecahedronGeometry(rr(0.28,0.42), 0), M(pick([PAL.leafOlive, 0x7a6f3f]), {rough:1}));
+      b.scale.y = rr(0.5,0.65);
+      b.position.set(rr(-0.2,0.2), rr(0.2,0.5), rr(-0.2,0.2));
+      bush.add(b);
+    }
+    placeOnGround(bush, x, z, {embed:0.06, tilt:0, yaw: rand()*7});
+    flowers.add(bush);
+  }
+})();
+
+/* ============================== AMBIENT ANIMATION SETUP ============================== */
+/* loose piece of paper lifting and settling */
+let paper;
+(function makePaper(){
+  const geo = new THREE.PlaneGeometry(0.36, 0.46, 4, 4);
+  const p = geo.attributes.position;
+  for (let i=0; i<p.count; i++){
+    p.setZ(i, (hash2(p.getX(i)*3, p.getY(i)*3)-0.5)*0.05);
+  }
+  geo.computeVertexNormals();
+  paper = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color:PAL.paper, roughness:0.95, side:THREE.DoubleSide }));
+  const px = 2.1, pz = 3.7;
+  paper.position.set(px, groundY(px, pz)+0.04, pz);
+  paper.userData.baseY = groundY(px, pz)+0.04;
+  paper.rotation.x = -Math.PI/2*0.8;
+  paper.castShadow = true;
+  trashLayer.add(paper);
+})();
+
+/* ============================== RENDER LOOP ============================== */
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // grass sway
+  for (const g of swayers){
+    const s = Math.sin(t*1.7 + g.userData.phase)*0.075;
+    g.rotation.x = g.userData.baseRX + s*0.6;
+    g.rotation.z = g.userData.baseRZ + s;
+  }
+
+  // paper: gently lifting and settling
+  if (paper){
+    const lift = Math.pow(Math.abs(Math.sin(t*0.55 + 0.8)), 2.0);
+    paper.position.y = paper.userData.baseY + lift*0.28;
+    paper.rotation.z = Math.sin(t*0.55 + 0.8)*0.25;
+    paper.rotation.x = -1.2 + Math.sin(t*0.55+0.8)*0.35;
+    paper.position.x = 2.1 + Math.sin(t*0.3)*0.12;
+  }
+
+  // puddle ripples
+  for (const r of ripples){
+    const k = (t*0.32 + r.userData.phase) % 1;
+    r.scale.setScalar(0.2 + k*1.7);
+    r.material.opacity = Math.max(0, (1-k))*0.16;
+    r.visible = k > 0.06;
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+});
+</script>
+</body>
+</html>

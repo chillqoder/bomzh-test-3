@@ -1,0 +1,29 @@
+- generic [ref=f1e5]:
+  - heading "ПОМОЙНЫЙ ЗАМЕС" [level=1] [ref=f1e6]
+  - paragraph [ref=f1e7]: Пробейтесь через недружелюбный городской переулок к пункту приёма стеклотары. Ищите бутылки в баках, швыряйтесь мусором и вырубайте конкурентов!
+  - generic [ref=f1e8]:
+    - generic [ref=f1e9]:
+      - generic [ref=f1e10]: A / D
+      - text: Движение влево / вправо
+    - generic [ref=f1e11]:
+      - generic [ref=f1e12]: Space
+      - text: Прыжок через препятствия
+    - generic [ref=f1e13]:
+      - generic [ref=f1e14]: J
+      - text: Удар кулаком (18 урона)
+    - generic [ref=f1e15]:
+      - generic [ref=f1e16]: K
+      - text: Бросок предмета (30 / 15 урона)
+    - generic [ref=f1e17]:
+      - generic [ref=f1e18]: Tab
+      - text: Переключить бутылки / мусор
+    - generic [ref=f1e19]:
+      - generic [ref=f1e20]: E (зажать)
+      - text: Обыскать бак или кучу
+    - generic [ref=f1e21]:
+      - generic [ref=f1e22]: Q
+      - text: Настойка (+30 HP)
+    - generic [ref=f1e23]:
+      - generic [ref=f1e24]: R
+      - text: Быстрый перезапуск
+  - button "НАЧАТЬ ЗАМЕС" [ref=f1e25] [cursor=pointer]
